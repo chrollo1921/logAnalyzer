@@ -270,3 +270,109 @@ def test_provider_builds_default_client(monkeypatch: pytest.MonkeyPatch) -> None
     provider = AnthropicProvider(Settings(max_retries=5, request_timeout_seconds=12))
     assert provider._client.max_retries == 5
     assert provider._client.timeout == 12
+
+
+# --- Anthropic provider: chat ---------------------------------------------------------
+
+
+def _chat_response(stop_reason: str = "tool_use", stop_details: Any = None) -> Any:
+    from anthropic.types.beta import BetaTextBlock, BetaThinkingBlock, BetaToolUseBlock
+
+    return SimpleNamespace(
+        model="claude-opus-5-5",
+        stop_reason=stop_reason,
+        stop_details=stop_details,
+        usage=SimpleNamespace(input_tokens=10, output_tokens=5, cache_read_input_tokens=7),
+        content=[
+            BetaThinkingBlock(type="thinking", thinking="", signature="sig"),
+            BetaTextBlock(type="text", text="Looking.", citations=None),
+            BetaToolUseBlock(
+                type="tool_use", id="toolu_1", name="find_identifier", input={"value": "tx-1"}
+            ),
+        ],
+    )
+
+
+TOOLS = [{"name": "find_identifier", "description": "d", "input_schema": {"type": "object"}}]
+
+
+def test_chat_sends_cached_system_tools_and_effort() -> None:
+    client = _FakeClient(_chat_response())
+    provider = AnthropicProvider(Settings(ask_effort="low"), client=client)  # type: ignore[arg-type]
+    messages = [{"role": "user", "content": "what went wrong?"}]
+    result = provider.chat(system=["prompt", "overview"], messages=messages, tools=TOOLS)
+
+    kwargs = client.kwargs
+    assert kwargs["system"] == [
+        {"type": "text", "text": "prompt"},
+        {"type": "text", "text": "overview", "cache_control": {"type": "ephemeral"}},
+    ]
+    assert kwargs["messages"] is messages
+    assert kwargs["tools"] == [{**TOOLS[0], "eager_input_streaming": True}]
+    assert "eager_input_streaming" not in TOOLS[0]
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert kwargs["output_config"] == {"effort": "low"}
+    assert kwargs["cache_control"] == {"type": "ephemeral"}
+    assert kwargs["fallbacks"] == "default"
+    assert result.stop_reason == "tool_use"
+    assert result.content == [
+        {"type": "thinking", "thinking": "", "signature": "sig"},
+        {"type": "text", "text": "Looking."},
+        {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "find_identifier",
+            "input": {"value": "tx-1"},
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("response", "error", "message"),
+    [
+        (_chat_response("refusal", SimpleNamespace(category="cyber")), LLMRefusalError, "cyber"),
+        (_chat_response("max_tokens"), LLMTruncatedError, "max_output_tokens"),
+    ],
+)
+def test_chat_bad_stops(response: Any, error: type[Exception], message: str) -> None:
+    provider = AnthropicProvider(Settings(), client=_FakeClient(response))  # type: ignore[arg-type]
+    with pytest.raises(error, match=message):
+        provider.chat(system=["s"], messages=[], tools=[])
+
+
+class _FlakyClient(_FakeClient):
+    """Fails to parse a streamed tool input ``failures`` times, then succeeds."""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__(_chat_response("end_turn"))
+        self.failures = failures
+        self.calls = 0
+
+    def _stream(self, **kwargs: Any) -> _Stream:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ValueError("Unable to parse tool parameter JSON")
+        return super()._stream(**kwargs)
+
+
+def test_chat_retries_one_unparseable_tool_call() -> None:
+    client = _FlakyClient(failures=1)
+    result = AnthropicProvider(Settings(), client=client).chat(  # type: ignore[arg-type]
+        system=[], messages=[], tools=[]
+    )
+    assert client.calls == 2
+    assert result.stop_reason == "end_turn"
+    with pytest.raises(LLMError, match="unparseable tool call"):
+        AnthropicProvider(Settings(), client=_FlakyClient(failures=2)).chat(  # type: ignore[arg-type]
+            system=[], messages=[], tools=[]
+        )
+
+
+def test_missing_credentials_become_llm_error() -> None:
+    error = TypeError('"Could not resolve authentication method. Expected one of api_key"')
+    provider = AnthropicProvider(Settings(), client=_FakeClient(error=error))  # type: ignore[arg-type]
+    with pytest.raises(LLMError, match="No Anthropic credentials"):
+        provider.chat(system=[], messages=[], tools=[])
+    other = AnthropicProvider(Settings(), client=_FakeClient(error=TypeError("bug")))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="bug"):
+        other.complete_json(system="s", prompt="p", schema={})

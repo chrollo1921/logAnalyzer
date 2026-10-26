@@ -2,6 +2,8 @@
 
 from sapcx_log_analyzer.llm.analyzer import LLMAnalyzer, batch_clusters, cluster_payload
 from sapcx_log_analyzer.llm.provider import (
+    ChatProvider,
+    ChatResponse,
     LLMError,
     LLMProvider,
     LLMRefusalError,
@@ -9,6 +11,8 @@ from sapcx_log_analyzer.llm.provider import (
 )
 
 __all__ = [
+    "ChatProvider",
+    "ChatResponse",
     "LLMAnalyzer",
     "LLMError",
     "LLMProvider",

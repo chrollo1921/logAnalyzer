@@ -246,6 +246,182 @@ def json_records() -> list[dict[str, str]]:
     return records
 
 
+def _ccv2_line(
+    when: datetime,
+    level: str,
+    thread: str,
+    logger: str,
+    message: str,
+    context: dict[str, str] | None = None,
+    thrown: dict[str, object] | None = None,
+) -> str:
+    doc: dict[str, object] = {
+        "instant": {"epochSecond": int(when.timestamp()), "nanoOfSecond": when.microsecond * 1000},
+        "thread": thread,
+        "level": level,
+        "loggerName": logger,
+        "message": message,
+    }
+    if context:
+        doc["contextMap"] = context
+    if thrown:
+        doc["thrown"] = thrown
+    return json.dumps(doc)
+
+
+HIKARI: dict[str, object] = {
+    "name": "de.hybris.platform.order.exceptions.CalculationException",
+    "message": "Could not calculate cart",
+    "extendedStackTrace": [
+        {
+            "class": "de.hybris.platform.order.impl.DefaultCalculationService",
+            "method": "calculate",
+            "file": "DefaultCalculationService.java",
+            "line": 151,
+        }
+    ],
+    "cause": {
+        "name": "java.sql.SQLTransientConnectionException",
+        "message": "HikariPool-1 - Connection is not available, request timed out after 30000ms.",
+    },
+}
+
+
+def transaction_records() -> list[dict[str, str]]:
+    """One failed checkout, one successful checkout and one failed payment capture."""
+    t = T0 + timedelta(minutes=40)
+    records: list[dict[str, str]] = []
+
+    def add(
+        seconds: float,
+        level: str,
+        pod: str,
+        thread: str,
+        logger: str,
+        message: str,
+        trace: str | None = None,
+        context: dict[str, str] | None = None,
+        thrown: dict[str, object] | None = None,
+    ) -> None:
+        when = t + timedelta(seconds=seconds)
+        record = {
+            "timestamp": when.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "loglevel": level,
+            "content": _ccv2_line(when, level, thread, logger, message, context, thrown),
+            "k8s.pod.name": pod,
+            "k8s.container.name": "platform",
+        }
+        if trace:
+            record["trace_id"] = trace
+        records.append(record)
+
+    failed = {
+        "CorrelationId": "c0ffee01-aaaa-4bbb-8ccc-000000243232",
+        "sessionId": "8F3AC2D1E0B9A7F6",
+    }
+    trace_failed = "4bf92f3577b34da6a3ce929d0e0e4736"
+    facade = "de.hybris.platform.commercefacades.order.impl.DefaultCheckoutFacade"
+    # Database pool exhaustion around the failed checkout, on both API pods.
+    for i in range(6):
+        add(
+            -20 + i * 6,
+            "ERROR",
+            API_PODS[i % 2],
+            f"hybrisHTTP{60 + i}",
+            "de.hybris.platform.product.impl.DefaultProductService",
+            f"Could not load product PK 87960930{55000 + i}",
+            thrown=HIKARI,
+        )
+    add(
+        0.0,
+        "INFO",
+        API_PODS[0],
+        "hybrisHTTP12",
+        facade,
+        "Placing order for cart 00087123 (tx-243232)",
+        trace_failed,
+        failed,
+    )
+    add(
+        0.2,
+        "DEBUG",
+        API_PODS[0],
+        "hybrisHTTP12",
+        "de.hybris.platform.order.impl.DefaultCalculationService",
+        "Calculating cart 00087123",
+        trace_failed,
+    )
+    add(
+        30.3,
+        "ERROR",
+        API_PODS[0],
+        "hybrisHTTP12",
+        "de.hybris.platform.commerceservices.order.impl.DefaultCommerceCheckoutService",
+        "Failed to place order",
+        trace_failed,
+        thrown=HIKARI,
+    )
+    add(
+        30.4,
+        "WARN",
+        API_PODS[0],
+        "hybrisHTTP12",
+        "de.hybris.platform.webservicescommons.handler.DefaultWebserviceErrorHandler",
+        "Request POST /occ/v2/electronics/users/current/orders failed with 500 for jane.doe@example.com",
+        trace_failed,
+        failed,
+    )
+    # Unrelated noise on the same thread much later.
+    add(300.0, "INFO", API_PODS[0], "hybrisHTTP12", facade, "Cart 00099999 updated")
+
+    ok = {"CorrelationId": "c0ffee01-aaaa-4bbb-8ccc-000000243233"}
+    add(
+        5.0,
+        "INFO",
+        API_PODS[1],
+        "hybrisHTTP14",
+        facade,
+        "Placing order for cart 00087124 (tx-243233)",
+        "5cf92f3577b34da6a3ce929d0e0e4737",
+        ok,
+    )
+    add(
+        5.8,
+        "INFO",
+        API_PODS[1],
+        "hybrisHTTP14",
+        facade,
+        "Order 00012346 placed (tx-243233)",
+        "5cf92f3577b34da6a3ce929d0e0e4737",
+        ok,
+    )
+
+    bp = "de.hybris.platform.processengine.impl.DefaultBusinessProcessService"
+    add(
+        60.0,
+        "INFO",
+        BG_POD,
+        "taskExecutor-7",
+        bp,
+        "Started order-process for orderCode=00012399 (tx-250001)",
+    )
+    add(
+        64.0,
+        "ERROR",
+        BG_POD,
+        "taskExecutor-7",
+        "com.example.payment.actions.CapturePaymentAction",
+        "Payment capture failed for orderCode=00012399",
+        thrown={
+            "name": "com.example.payment.PaymentServiceException",
+            "message": "Capture rejected by PSP",
+            "cause": {"name": "java.net.SocketTimeoutException", "message": "Read timed out"},
+        },
+    )
+    records.sort(key=lambda r: r["timestamp"])
+    return records
+
+
 def main() -> None:
     rows = csv_rows()
     with (HERE / "dynatrace_export.csv").open("w", encoding="utf-8", newline="") as handle:
@@ -254,6 +430,9 @@ def main() -> None:
         writer.writerows(rows)
     (HERE / "dynatrace_grail.json").write_text(
         json.dumps({"result": {"records": json_records()}}, indent=2) + "\n", encoding="utf-8"
+    )
+    (HERE / "transactions.ndjson").write_text(
+        "".join(json.dumps(r) + "\n" for r in transaction_records()), encoding="utf-8"
     )
 
 

@@ -9,7 +9,7 @@ from sapcx_log_analyzer.models import Classification, LogRecord
 
 # Applied in order; earlier, more specific masks protect values from later ones.
 _MASKS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"<[A-Z?]+>"), "<*>"),  # placeholders left by the redactor
+    (re.compile(r"<[A-Z?]+(?:#[0-9a-f]+)?>"), "<*>"),  # placeholders left by the redactor
     (
         re.compile(
             r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"

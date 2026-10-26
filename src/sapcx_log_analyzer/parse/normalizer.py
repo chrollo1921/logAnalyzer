@@ -23,6 +23,11 @@ KNOWN_ASPECTS = (
 )
 _POD_KEYS = ("k8s.pod.name", "pod", "host.name", "dt.kubernetes.pod.name")
 _ASPECT_KEYS = ("aspect", "k8s.workload.name", "k8s.deployment.name", "k8s.container.name")
+# Export attributes that link records belonging to one request or business transaction.
+_CORRELATION_KEY = re.compile(
+    r"(?i)(?:^|[._-])(?:trace|span|correlation|request|transaction|txn?|session|order|cart)"
+    r"(?:[._-]?(?:id|code|number))?$"
+)
 
 
 def stitch(entries: Iterable[RawEntry]) -> Iterator[RawEntry]:
@@ -60,6 +65,14 @@ def _aspect(entry: RawEntry) -> str | None:
     return None
 
 
+def _context(entry: RawEntry, parsed: ParsedLine) -> dict[str, str]:
+    context = {
+        key: value for key, value in entry.attributes.items() if _CORRELATION_KEY.search(key)
+    }
+    context.update(parsed.context)
+    return context
+
+
 def _parse_content(content: str) -> ParsedLine:
     first, _, rest = content.partition("\n")
     parsed = parse_json_line(first)
@@ -91,6 +104,7 @@ def normalize(entry: RawEntry) -> LogRecord:
         stack=stack.lines,
         aspect=_aspect(entry),
         pod=_pod(entry),
+        context=_context(entry, parsed),
     )
 
 

@@ -99,3 +99,53 @@ def fake_provider() -> FakeProvider:
 def make_record(message: str, **kwargs: Any) -> LogRecord:
     kwargs.setdefault("level", LogLevel.ERROR)
     return LogRecord(message=message, **kwargs)
+
+
+class ScriptedChatProvider:
+    """Plays back a list of assistant turns and records every request, offline.
+
+    Each turn is either a ChatResponse, an exception to raise, or a callable that gets
+    the request messages and returns a ChatResponse.
+    """
+
+    def __init__(self, turns: list[Any]) -> None:
+        self._turns = list(turns)
+        self.requests: list[dict[str, Any]] = []
+
+    @property
+    def model_name(self) -> str:
+        return "fake-chat-model"
+
+    def chat(
+        self, *, system: list[str], messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> Any:
+        import copy
+
+        self.requests.append(
+            {"system": system, "messages": copy.deepcopy(messages), "tools": tools}
+        )
+        if not self._turns:
+            raise AssertionError("the model was called more often than scripted")
+        turn = self._turns.pop(0)
+        if isinstance(turn, Exception):
+            raise turn
+        return turn(messages) if callable(turn) else turn
+
+
+def tool_turn(*calls: tuple[str, dict[str, Any]], text: str | None = None) -> Any:
+    from sapcx_log_analyzer.llm import ChatResponse
+
+    content: list[dict[str, Any]] = [{"type": "thinking", "thinking": "", "signature": "sig"}]
+    if text:
+        content.append({"type": "text", "text": text})
+    for index, (name, args) in enumerate(calls):
+        content.append(
+            {"type": "tool_use", "id": f"toolu_{name}_{index}", "name": name, "input": args}
+        )
+    return ChatResponse(stop_reason="tool_use", content=content)
+
+
+def text_turn(text: str) -> Any:
+    from sapcx_log_analyzer.llm import ChatResponse
+
+    return ChatResponse(stop_reason="end_turn", content=[{"type": "text", "text": text}])
