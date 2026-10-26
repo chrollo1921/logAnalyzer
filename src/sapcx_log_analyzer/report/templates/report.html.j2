@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAP Commerce log analysis: {{ m.source }}</title>
+<style>
+  :root { --bg:#fff; --fg:#1d2330; --muted:#5d6675; --line:#dfe3ea; --card:#f6f8fb;
+          --critical:#b42318; --high:#c4320a; --medium:#b54708; --low:#175cd3; --info:#475467; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --fg:#e6e9ef; --muted:#9aa3b2; --line:#2a303b; --card:#1a1f27;
+            --critical:#f97066; --high:#fd853a; --medium:#fdb022; --low:#84adff; --info:#98a2b3; }
+  }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif;
+         max-width:1100px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:1.5rem; margin-bottom:4px; } h2 { margin-top:32px; border-bottom:1px solid var(--line); }
+  .meta { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 16px; margin:12px 0; }
+  .sev { font-weight:600; text-transform:uppercase; font-size:.8rem; }
+  .sev-critical { color:var(--critical); } .sev-high { color:var(--high); } .sev-medium { color:var(--medium); }
+  .sev-low { color:var(--low); } .sev-info { color:var(--info); }
+  table { border-collapse:collapse; width:100%; font-size:.9rem; display:block; overflow-x:auto; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  td.num { text-align:right; }
+  code, pre { font-family:ui-monospace, monospace; font-size:.85rem; }
+  pre { background:var(--card); border:1px solid var(--line); padding:8px; overflow-x:auto; white-space:pre-wrap; }
+  details summary { cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>SAP Commerce log analysis</h1>
+<p class="meta">{{ m.source }} · {{ m.time_range_start | dt }} to {{ m.time_range_end | dt }} ·
+  {{ m.total_records }} records read, {{ m.analyzed_records }} analysed, {{ clusters | length }} distinct issues ·
+  {% if m.llm_used %}analysed with {{ m.model }}{% else %}rules and clustering only{% endif %}</p>
+
+{% if a %}
+<h2>Summary</h2>
+<div class="card">
+  <p><span class="sev sev-{{ a.overall_severity.value }}">{{ a.overall_severity.value }}</span></p>
+  <p>{{ a.summary }}</p>
+  {% if a.top_priorities %}<ol>{% for p in a.top_priorities %}<li>{{ p }}</li>{% endfor %}</ol>{% endif %}
+</div>
+
+<h2>Findings</h2>
+{% for f in a.findings %}
+<div class="card">
+  <h3>{{ f.title }}</h3>
+  <p><span class="sev sev-{{ f.severity.value }}">{{ f.severity.value }}</span> ·
+     {{ "%.0f" | format(f.confidence * 100) }}% confidence · {{ f.component }} ·
+     clusters {% for cid in f.cluster_ids %}<a href="#c-{{ cid }}"><code>{{ cid }}</code></a> {% endfor %}</p>
+  <p>{{ f.summary }}</p>
+  <p><strong>Root cause:</strong> {{ f.root_cause }}</p>
+  {% if f.recommended_actions %}<ol>{% for act in f.recommended_actions %}<li><em>{{ act.type.value }}</em>: {{ act.description }}</li>{% endfor %}</ol>{% endif %}
+  {% if f.evidence %}<details><summary>Evidence</summary><ul>{% for e in f.evidence %}<li><code>{{ e }}</code></li>{% endfor %}</ul></details>{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>Issues by cluster</h2>
+<table>
+  <thead><tr><th>Severity</th><th>Component</th><th>Issue</th><th>Events</th><th>Aspects</th><th>First seen</th><th>Last seen</th><th>Cluster</th></tr></thead>
+  <tbody>
+  {% for c in clusters %}
+  <tr><td class="sev sev-{{ c.severity.value }}">{{ c.severity.value }}</td><td>{{ c.component }}</td><td>{{ c.title }}</td>
+      <td class="num">{{ c.count }}</td><td>{{ c.aspects | join(", ") or "-" }}</td><td>{{ c.first_seen | dt }}</td>
+      <td>{{ c.last_seen | dt }}</td><td><a href="#c-{{ c.id }}"><code>{{ c.id }}</code></a></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if timeline %}
+<h2>Timeline ({{ bucket_label }})</h2>
+<table>
+  <thead><tr><th>Bucket start</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th></tr></thead>
+  <tbody>
+  {% for b in timeline %}
+  <tr><td>{{ b.start | dt }}</td><td class="num">{{ b.counts.get(S.CRITICAL, 0) }}</td><td class="num">{{ b.counts.get(S.HIGH, 0) }}</td>
+      <td class="num">{{ b.counts.get(S.MEDIUM, 0) }}</td><td class="num">{{ b.counts.get(S.LOW, 0) }}</td><td class="num">{{ b.counts.get(S.INFO, 0) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Cluster details</h2>
+{% for c in clusters %}
+<div class="card" id="c-{{ c.id }}">
+  <h3><code>{{ c.id }}</code> {{ c.title }}</h3>
+  <p><span class="sev sev-{{ c.severity.value }}">{{ c.severity.value }}</span> · {{ c.rule_id }} · {{ c.level.value }} · {{ c.count }} events ·
+     logger {{ c.logger or "-" }} · {{ c.exception_class or "no exception" }}</p>
+  <p><code>{{ c.template }}</code></p>
+  {% for s in c.samples %}<pre>{{ s }}</pre>{% endfor %}
+</div>
+{% endfor %}
+</body>
+</html>

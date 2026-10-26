@@ -1,0 +1,14 @@
+# Project-specific rules. They are checked before the built-in rules, so they can
+# override a built-in classification. Same format as
+# src/sapcx_log_analyzer/classify/rules/sapcx_rules.yaml.
+
+rules:
+  - id: erp-order-export-failure
+    title: Order export to S/4HANA failed
+    component: Integration / S/4HANA order export
+    severity: high
+    patterns:
+      - "order export .* failed"
+      - SapOrderExportException
+    loggers:
+      - "com\\.acme\\..*OrderExport"
