@@ -100,6 +100,8 @@ class LogRecord(BaseModel):
     stack: list[str] = Field(default_factory=list)
     aspect: str | None = None
     pod: str | None = None
+    # Correlation values such as trace_id, span_id or CCv2 MDC entries, keyed by source name.
+    context: dict[str, str] = Field(default_factory=dict)
 
     def search_text(self) -> str:
         """Text the classifier matches rules against."""

@@ -16,6 +16,7 @@ class ParsedLine:
     thread: str | None = None
     timestamp: datetime | None = None
     stack: list[str] = field(default_factory=list)
+    context: dict[str, str] = field(default_factory=dict)
 
 
 def _timestamp(doc: dict[str, Any]) -> datetime | None:
@@ -53,6 +54,18 @@ def _thrown_lines(thrown: dict[str, Any], prefix: str = "") -> list[str]:
     return lines
 
 
+def _context(doc: dict[str, Any]) -> dict[str, str]:
+    """Scalar MDC values: log4j2 writes them as ``contextMap``, older layouts as ``mdc``."""
+    result: dict[str, str] = {}
+    for key in ("contextMap", "mdc", "context"):
+        values = doc.get(key)
+        if isinstance(values, dict):
+            for name, value in values.items():
+                if value not in (None, "") and not isinstance(value, (dict, list)):
+                    result[str(name)] = str(value)
+    return result
+
+
 def parse_json_line(content: str) -> ParsedLine | None:
     """Parse one JSON log line, or return None if it is not one."""
     text = content.strip()
@@ -75,4 +88,5 @@ def parse_json_line(content: str) -> ParsedLine | None:
         thread=doc.get("thread") or doc.get("threadName"),
         timestamp=_timestamp(doc),
         stack=_thrown_lines(thrown) if isinstance(thrown, dict) else [],
+        context=_context(doc),
     )

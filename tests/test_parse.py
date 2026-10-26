@@ -157,3 +157,30 @@ def test_level_aliases() -> None:
     assert LogLevel.parse("SEVERE") is LogLevel.ERROR
     assert LogLevel.parse(None) is LogLevel.INFO
     assert LogLevel.parse("weird") is LogLevel.INFO
+
+
+def test_correlation_context_from_attributes_and_mdc() -> None:
+    from sapcx_log_analyzer.models import RawEntry
+    from sapcx_log_analyzer.parse import normalize
+
+    content = (
+        '{"level": "INFO", "message": "hi", "thread": "t", "contextMap": '
+        '{"CorrelationId": "c-1", "Tenant": "master", "nested": {"a": 1}, "empty": ""}}'
+    )
+    entry = RawEntry(
+        content=content,
+        attributes={
+            "trace_id": "abc",
+            "dt.span_id": "def",
+            "k8s.pod.name": "api-1",
+            "x-request-id": "r-9",
+        },
+    )
+    record = normalize(entry)
+    assert record.context == {
+        "trace_id": "abc",
+        "dt.span_id": "def",
+        "x-request-id": "r-9",
+        "CorrelationId": "c-1",
+        "Tenant": "master",
+    }

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask the logs</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e3e0;
+    --accent: #0b6bcb; --accent-soft: #e6f0fb; --error: #b42318; --warn: #a15c00;
+    --code: #f1f1ee; --user: #eef3ea;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --text: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --accent: #5aa5f0; --accent-soft: #1d2b3a; --error: #f97066; --warn: #fdb022;
+      --code: #26262b; --user: #1f2a1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5; }
+  header { padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); height: calc(100vh - 49px); }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); height: auto; } #chat { border-right: 0; } #evidence { min-height: 40vh; } }
+  #chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  #log { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg { max-width: 860px; margin: 0 0 18px; }
+  .msg.user { background: var(--user); padding: 10px 14px; border-radius: 10px; width: fit-content; max-width: 90%; }
+  .msg.bot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .msg.bot h1, .msg.bot h2, .msg.bot h3 { font-size: 15px; margin: 14px 0 6px; }
+  .msg.bot p { margin: 6px 0; }
+  .msg.bot ul, .msg.bot ol { margin: 6px 0; padding-left: 22px; }
+  .msg.error { color: var(--error); border-color: var(--error); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  code { background: var(--code); padding: 1px 4px; border-radius: 4px; }
+  pre { background: var(--code); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .steps { color: var(--muted); font-size: 13px; margin: 0 0 8px; padding: 0; list-style: none; }
+  .steps li::before { content: "› "; }
+  .steps li.err { color: var(--warn); }
+  button.ref { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 0 7px; font: inherit; font-size: 13px; cursor: pointer; }
+  button.ref:hover { filter: brightness(1.1); }
+  form { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+  textarea { flex: 1; min-width: 0; resize: none; font: inherit; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); min-height: 42px; }
+  form button { font: inherit; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent);
+    color: #fff; cursor: pointer; }
+  form button.secondary { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  form button:disabled { opacity: .5; cursor: default; }
+  .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .examples button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+  #evidence { overflow-y: auto; padding: 16px 20px; background: var(--panel); min-height: 0; }
+  #evidence h2 { font-size: 14px; margin: 0 0 8px; }
+  #evidence .hint { color: var(--muted); font-size: 14px; }
+  .rec { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-word; border-left: 3px solid var(--line); padding: 4px 8px; margin: 4px 0; }
+  .rec.ERROR, .rec.FATAL { border-left-color: var(--error); }
+  .rec.WARN { border-left-color: var(--warn); }
+  .rec.anchor { background: var(--accent-soft); }
+  .scope { display: flex; gap: 6px; margin: 10px 0 6px; font-size: 13px; color: var(--muted); align-items: center; }
+  .scope button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--text);
+    border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+  .scope button.on { border-color: var(--accent); color: var(--accent); }
+  .thinking { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ask the logs</h1>
+  <span class="meta" id="meta">Loading export…</span>
+</header>
+<main>
+  <section id="chat">
+    <div id="log" aria-live="polite">
+      <div class="msg bot" id="welcome">
+        <p>Ask about a transaction, order, cart, trace or correlation id, or about anything else in this export. For example: <em>What went wrong with transaction tx-243232?</em></p>
+        <p class="hint" style="color:var(--muted);font-size:13px">Personal data and secrets are redacted before anything is sent to Claude. Click a <button class="ref" type="button" disabled>#ref</button> to see the log line and what happened around it.</p>
+        <div class="examples" id="examples"></div>
+      </div>
+    </div>
+    <form id="ask">
+      <textarea id="question" rows="2" placeholder="What went wrong with transaction tx-243232?" aria-label="Question"></textarea>
+      <button type="submit" id="send">Ask</button>
+      <button type="button" class="secondary" id="reset" title="Start a new conversation">New</button>
+    </form>
+  </section>
+  <aside id="evidence">
+    <h2>Evidence</h2>
+    <p class="hint">Log lines you open from an answer appear here.</p>
+  </aside>
+</main>
+<script>
+(() => {
+  const log = document.getElementById("log");
+  const form = document.getElementById("ask");
+  const input = document.getElementById("question");
+  const send = document.getElementById("send");
+  const evidence = document.getElementById("evidence");
+  let conversation = null;
+  let busy = false;
+
+  const esc = (s) => s.replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
+  async function api(path, body) {
+    const res = await fetch(path, body === undefined ? {} : {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    });
+    return res;
+  }
+
+  async function newConversation() {
+    const res = await api("/api/conversations", {});
+    conversation = (await res.json()).id;
+  }
+
+  function inline(text) {
+    // text is already escaped
+    return text
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^\w&*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[^\w&])#(\d{1,9})\b/g, '$1<button class="ref" type="button" data-ref="$2">#$2</button>');
+  }
+
+  function markdown(src) {
+    const lines = esc(src).split("\n");
+    const out = [];
+    let list = null, para = [], code = null;
+    const flushPara = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+    const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map((i) => "<li>" + inline(i) + "</li>").join("") + `</${list.tag}>`); list = null; } };
+    for (const line of lines) {
+      if (code !== null) {
+        if (/^```/.test(line)) { out.push("<pre><code>" + code.join("\n") + "</code></pre>"); code = null; }
+        else code.push(line);
+        continue;
+      }
+      if (/^```/.test(line)) { flushPara(); flushList(); code = []; continue; }
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) { flushPara(); flushList(); out.push(`<h3>${inline(h[2])}</h3>`); continue; }
+      const ul = line.match(/^\s*[-*]\s+(.*)$/);
+      const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (ul || ol) {
+        flushPara();
+        const tag = ul ? "ul" : "ol";
+        if (!list || list.tag !== tag) { flushList(); list = {tag, items: []}; }
+        list.items.push((ul || ol)[1]);
+        continue;
+      }
+      if (!line.trim()) { flushPara(); flushList(); continue; }
+      if (list && /^\s{2,}/.test(line)) { list.items[list.items.length - 1] += " " + line.trim(); continue; }
+      flushList();
+      para.push(line.trim());
+    }
+    if (code !== null) out.push("<pre><code>" + code.join("\n") + "</code></pre>");
+    flushPara(); flushList();
+    return out.join("");
+  }
+
+  function addMessage(cls, html) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = html;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  async function ask(question) {
+    if (busy || !question.trim()) return;
+    busy = true; send.disabled = true;
+    if (!conversation) await newConversation();
+    addMessage("user", esc(question));
+    const bot = addMessage("bot", '<ul class="steps"></ul><div class="body thinking">Investigating…</div>');
+    const steps = bot.querySelector(".steps");
+    const body = bot.querySelector(".body");
+    try {
+      const res = await api("/api/ask", {conversation, question});
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({error: res.statusText}));
+        throw new Error(err.error || res.statusText);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "step") {
+            const li = document.createElement("li");
+            li.textContent = event.summary;
+            if (event.error) li.className = "err";
+            steps.appendChild(li);
+          } else if (event.type === "answer") {
+            body.className = "body";
+            body.innerHTML = markdown(event.text || "(no answer)");
+            if (!event.complete) body.insertAdjacentHTML("beforeend", '<p class="hint" style="color:var(--warn)">The investigation stopped at the lookup limit.</p>');
+          } else if (event.type === "error") {
+            bot.classList.add("error");
+            body.className = "body";
+            body.textContent = "Claude could not answer: " + event.message;
+          }
+          log.scrollTop = log.scrollHeight;
+        }
+      }
+    } catch (err) {
+      bot.classList.add("error");
+      body.className = "body";
+      body.textContent = "Request failed: " + err.message;
+    } finally {
+      busy = false; send.disabled = false; input.focus();
+    }
+  }
+
+  async function showRecord(ref, scope = "thread") {
+    const res = await api(`/api/records/${ref}?scope=${scope}`);
+    if (!res.ok) { evidence.innerHTML = `<h2>Evidence</h2><p class="hint">Record #${esc(String(ref))} not found.</p>`; return; }
+    const data = await res.json();
+    const scopes = ["thread", "pod", "all"].map((s) => `<button type="button" data-scope="${s}" class="${s === scope ? "on" : ""}">${s}</button>`).join("");
+    evidence.innerHTML =
+      `<h2>Record #${data.ref}</h2><div class="rec ${data.level} anchor">${esc(data.text)}</div>` +
+      `<div class="scope">Within 60 s, same ${scopes}</div>` +
+      data.context.map((r) => `<div class="rec ${r.level}${r.ref === data.ref ? " anchor" : ""}">${inline(esc(r.text.split("\n")[0]))}${esc(r.text.includes("\n") ? "\n" + r.text.split("\n").slice(1).join("\n") : "")}</div>`).join("");
+    evidence.querySelectorAll(".scope button").forEach((b) => b.addEventListener("click", () => showRecord(data.ref, b.dataset.scope)));
+    evidence.scrollTop = 0;
+  }
+
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest("button.ref[data-ref]");
+    if (target) showRecord(Number(target.dataset.ref));
+  });
+  form.addEventListener("submit", (e) => { e.preventDefault(); const q = input.value; input.value = ""; ask(q); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+  document.getElementById("reset").addEventListener("click", async () => {
+    if (busy) return;
+    conversation = null;
+    log.querySelectorAll(".msg:not(#welcome)").forEach((m) => m.remove());
+    evidence.innerHTML = '<h2>Evidence</h2><p class="hint">Log lines you open from an answer appear here.</p>';
+  });
+
+  api("/api/overview").then((r) => r.json()).then((o) => {
+    const range = o.time_range_start ? `${o.time_range_start.replace("T", " ").slice(0, 19)} to ${o.time_range_end.replace("T", " ").slice(0, 19)} UTC` : "no timestamps";
+    document.getElementById("meta").textContent = `${o.source} · ${o.records.toLocaleString()} records · ${range} · ${o.known_issue_clusters} known issue patterns`;
+    const box = document.getElementById("examples");
+    const questions = (o.examples || []).slice(0, 3).map((id) => `What went wrong with ${id}?`);
+    questions.push("Which problems affected the most requests?");
+    for (const q of questions) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = q;
+      b.addEventListener("click", () => ask(q));
+      box.appendChild(b);
+    }
+  }).catch(() => { document.getElementById("meta").textContent = "Could not load the export overview."; });
+})();
+</script>
+</body>
+</html>

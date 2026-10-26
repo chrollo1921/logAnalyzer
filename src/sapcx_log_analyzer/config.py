@@ -27,8 +27,11 @@ Effort = Literal["low", "medium", "high", "xhigh", "max"]
 class RedactionPattern(BaseModel):
     name: str
     pattern: str
-    replacement: str
+    replacement: str = ""
     luhn: bool = False  # only replace digit runs that pass the Luhn check
+    # Replace the pattern's ``value`` group with a stable token such as ``<SESSION#1a2b3c4d>``
+    # instead of ``replacement``, so redacted lines can still be linked to each other.
+    link_label: str | None = None
 
 
 class Settings(BaseSettings):
@@ -52,6 +55,11 @@ class Settings(BaseSettings):
     max_sample_chars: int = Field(default=1500, gt=100)
     top_frames_per_cluster: int = Field(default=8, ge=0)
     timeline_bucket_minutes: int = Field(default=5, gt=0)
+
+    # Interactive questions (`ask` and `serve`)
+    ask_effort: Effort = "medium"
+    ask_max_tool_rounds: int = Field(default=12, ge=1, le=50)
+    ask_max_tool_result_chars: int = Field(default=24_000, gt=1000)
 
     # Extensibility
     extra_rules_file: Path | None = None

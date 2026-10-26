@@ -9,11 +9,12 @@ from typing import Annotated
 import typer
 
 from sapcx_log_analyzer import __version__
+from sapcx_log_analyzer.ask.store import LogStore
 from sapcx_log_analyzer.classify import RuleEngine
 from sapcx_log_analyzer.config import Effort, Settings, load_settings
 from sapcx_log_analyzer.ingest import ExportFormat
 from sapcx_log_analyzer.ingest.dynatrace_json import ExportFormatError
-from sapcx_log_analyzer.llm import LLMAnalyzer, LLMError, LLMProvider
+from sapcx_log_analyzer.llm import ChatProvider, LLMAnalyzer, LLMError, LLMProvider
 from sapcx_log_analyzer.models import LogLevel
 from sapcx_log_analyzer.pipeline import prepare
 from sapcx_log_analyzer.report import OutputFormat, render
@@ -30,6 +31,13 @@ app = typer.Typer(
 
 def build_provider(settings: Settings) -> LLMProvider:
     """Factory for the LLM backend; tests replace this."""
+    from sapcx_log_analyzer.llm.anthropic_provider import AnthropicProvider
+
+    return AnthropicProvider(settings)
+
+
+def build_chat_provider(settings: Settings) -> ChatProvider:
+    """Factory for the chat backend used by `ask` and `serve`; tests replace this."""
     from sapcx_log_analyzer.llm.anthropic_provider import AnthropicProvider
 
     return AnthropicProvider(settings)
@@ -124,6 +132,176 @@ def analyze(
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
         typer.echo(f"Wrote {fmt.value} report to {output}", err=True)
+
+
+ExportArg = Annotated[
+    Path, typer.Argument(exists=True, dir_okay=False, readable=True, help="Dynatrace export.")
+]
+InputFormatOpt = Annotated[
+    ExportFormat | None, typer.Option("--input-format", help="Override format detection.")
+]
+ConfigOpt = Annotated[
+    Path | None, typer.Option("--config", "-c", exists=True, dir_okay=False, help="YAML.")
+]
+ModelOpt = Annotated[str | None, typer.Option(help="Claude model id.")]
+EffortOpt = Annotated[
+    str | None, typer.Option(help="low, medium, high, xhigh or max (default medium).")
+]
+
+
+def _load_store(
+    export_file: Path,
+    config: Path | None,
+    input_format: ExportFormat | None,
+    model: str | None,
+    effort: str | None,
+) -> tuple[Settings, LogStore]:
+    try:
+        settings = load_settings(config, model=model, ask_effort=_effort(effort))
+        typer.echo(f"Loading {export_file.name} …", err=True)
+        store = LogStore.load(export_file, settings, input_format)
+    except (ExportFormatError, ValueError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    overview = store.overview()
+    typer.echo(
+        f"Loaded {overview['records']} records from {overview['time_range_start']} to "
+        f"{overview['time_range_end']}, {overview['known_issue_clusters']} known issue patterns.",
+        err=True,
+    )
+    return settings, store
+
+
+@app.command()
+def ask(
+    export_file: ExportArg,
+    question: Annotated[
+        str | None,
+        typer.Option("--question", "-q", help="Ask one question and exit, instead of chatting."),
+    ] = None,
+    input_format: InputFormatOpt = None,
+    config: ConfigOpt = None,
+    model: ModelOpt = None,
+    effort: EffortOpt = None,
+    show_steps: Annotated[
+        bool, typer.Option("--show-steps/--hide-steps", help="Print each log lookup.")
+    ] = True,
+) -> None:
+    """Chat about an export: ask what went wrong with a transaction, order or request."""
+    from sapcx_log_analyzer.ask import AskSession, ToolStep
+
+    settings, store = _load_store(export_file, config, input_format, model, effort)
+    try:
+        session = AskSession(store, build_chat_provider(settings), settings)
+    except LLMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_LLM_ERROR) from exc
+
+    def on_step(step: ToolStep) -> None:
+        if show_steps:
+            typer.secho(f"  - {step.summary}", err=True, dim=True)
+
+    def answer(text: str) -> bool:
+        try:
+            result = session.ask(text, on_step=on_step)
+        except LLMError as exc:
+            typer.echo(f"Claude could not answer: {exc}", err=True)
+            return False
+        typer.echo("")
+        typer.echo(result.text)
+        typer.echo("")
+        return True
+
+    if question is not None:
+        if not answer(question):
+            raise typer.Exit(EXIT_LLM_ERROR)
+        return
+
+    examples = store.sample_identifiers()
+    typer.echo(
+        "Ask about a transaction, order, trace or correlation id"
+        + (f", for example: what went wrong with {examples[0]}?" if examples else ".")
+        + "\nCommands: /record <ref> shows a log line, /new starts over, /exit quits.",
+        err=True,
+    )
+    while True:
+        try:
+            text = input("ask> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("", err=True)
+            return
+        if not text:
+            continue
+        if text in {"/exit", "/quit", "exit", "quit"}:
+            return
+        if text == "/new":
+            session.reset()
+            typer.echo("Started a new conversation.", err=True)
+            continue
+        if text.startswith("/record"):
+            _print_record(store, text.removeprefix("/record").strip().lstrip("#"))
+            continue
+        answer(text)
+
+
+def _print_record(store: LogStore, ref_text: str) -> None:
+    from sapcx_log_analyzer.ask.tools import format_record
+
+    try:
+        typer.echo(format_record(store, int(ref_text), full=True))
+    except (ValueError, KeyError):
+        typer.echo(f"No record {ref_text!r}; use /record <number>.", err=True)
+
+
+@app.command()
+def serve(
+    export_file: ExportArg,
+    host: Annotated[str, typer.Option(help="Address to listen on.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port to listen on; 0 picks a free one.")] = 8765,
+    allow_host: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-host",
+            help="Extra Host header value to accept, e.g. myvm.internal:8765. Repeatable.",
+        ),
+    ] = None,
+    input_format: InputFormatOpt = None,
+    config: ConfigOpt = None,
+    model: ModelOpt = None,
+    effort: EffortOpt = None,
+) -> None:
+    """Open a local web chat for asking questions about an export."""
+    from sapcx_log_analyzer.ask import AskSession
+    from sapcx_log_analyzer.ask.web import AskApp, create_server, is_loopback
+
+    settings, store = _load_store(export_file, config, input_format, model, effort)
+    try:
+        provider = build_chat_provider(settings)
+    except LLMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_LLM_ERROR) from exc
+    web_app = AskApp(store, lambda: AskSession(store, provider, settings))
+    try:
+        server = create_server(web_app, host, port)
+    except OSError as exc:
+        typer.echo(f"Error: cannot listen on {host}:{port}: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    web_app.allowed_hosts.update(h.lower() for h in allow_host or [])
+    if not is_loopback(host):
+        typer.secho(
+            "Warning: the chat has no login. Anyone who can reach this address can read these "
+            "logs and spend API credits.",
+            err=True,
+            fg="yellow",
+        )
+    shown = "localhost" if is_loopback(host) else host
+    typer.echo(f"Open http://{shown}:{server.server_address[1]}/  (Ctrl+C to stop)", err=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        typer.echo("", err=True)
+    finally:
+        server.server_close()
 
 
 @app.command("rules")

@@ -1,7 +1,7 @@
 """Opt-in smoke test against the real Anthropic API.
 
 Run with ``SAPCX_LA_LIVE_TESTS=1 ANTHROPIC_API_KEY=... pytest -m live``. It sends the
-redacted clusters of the synthetic fixture export, never real data.
+redacted clusters and log lines of the synthetic fixture exports, never real data.
 """
 
 from __future__ import annotations
@@ -30,3 +30,19 @@ def test_real_model_analyses_fixture(csv_export: Path) -> None:
     assert report.analysis.findings
     covered = {cid for f in report.analysis.findings for cid in f.cluster_ids}
     assert covered <= {c.id for c in report.clusters}
+
+
+def test_real_model_answers_a_transaction_question() -> None:
+    from sapcx_log_analyzer.ask import AskSession, LogStore
+    from tests.conftest import FIXTURES
+
+    settings = Settings(ask_effort="low")
+    store = LogStore.load(FIXTURES / "transactions.ndjson", settings)
+    session = AskSession(store, AnthropicProvider(settings), settings)
+    answer = session.ask("What went wrong with transaction tx-243232?")
+    assert answer.steps, "the model should look the transaction up"
+    assert "find_identifier" in {step.name for step in answer.steps}
+    assert answer.refs
+    assert "pool" in answer.text.lower() or "hikari" in answer.text.lower()
+    follow_up = session.ask("Was tx-243233 affected too?")
+    assert follow_up.text
