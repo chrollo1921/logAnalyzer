@@ -1,0 +1,298 @@
+# Known SAP Commerce Cloud failure signatures.
+#
+# Rules are checked in order and the first match wins, so keep specific rules above
+# generic ones. Patterns are Python regular expressions, matched case-insensitively
+# against the logger name, the message, the exception class and the non-frame lines
+# of the stack trace (exception headers and "Caused by:" lines).
+#
+# Fields:
+#   id         stable identifier, used in reports and fingerprints
+#   title      short human-readable name
+#   component  the SAP Commerce area the issue belongs to
+#   severity   critical | high | medium | low | info
+#   patterns   list of regexes; any one matching is enough
+#   loggers    optional list of regexes; when set, the logger must also match
+#   any_level  true to also match records below the minimum level (default false)
+
+rules:
+  - id: jvm-out-of-memory
+    title: JVM out of memory
+    component: JVM / Memory
+    severity: critical
+    any_level: true
+    patterns:
+      - OutOfMemoryError
+      - GC overhead limit exceeded
+      - Java heap space
+      - Metaspace
+
+  - id: jvm-stack-overflow
+    title: Stack overflow
+    component: JVM / Threads
+    severity: high
+    patterns:
+      - StackOverflowError
+
+  - id: spring-context-failure
+    title: Spring context or bean creation failure
+    component: Platform / Spring context
+    severity: critical
+    patterns:
+      - BeanCreationException
+      - BeanDefinitionStoreException
+      - NoSuchBeanDefinitionException
+      - UnsatisfiedDependencyException
+      - ApplicationContextException
+      - Context initialization failed
+
+  - id: db-connection-pool-exhausted
+    title: Database connection pool exhausted
+    component: Database / Connection pool
+    severity: critical
+    patterns:
+      - Connection is not available, request timed out
+      - HikariPool.*(timeout|exhausted|Connection is not available)
+      - Cannot get a connection, pool error
+      - CannotGetJdbcConnectionException
+      - Unable to acquire JDBC Connection
+
+  - id: db-deadlock
+    title: Database deadlock or lock timeout
+    component: Database / Locking
+    severity: high
+    patterns:
+      - deadlock
+      - Lock wait timeout
+      - lock request time out
+
+  - id: flexiblesearch-error
+    title: FlexibleSearch query failure
+    component: ServiceLayer / FlexibleSearch
+    severity: high
+    patterns:
+      - FlexibleSearchException
+      - FlexibleSearchError
+      - cannot search unknown field
+      - error executing query
+      - "type code .* invalid"
+
+  - id: db-sql-error
+    title: SQL error
+    component: Database / SQL
+    severity: high
+    patterns:
+      - SQLServerException
+      - SQLSyntaxErrorException
+      - BadSqlGrammarException
+      - DataIntegrityViolationException
+      - "\\bSQLException\\b"
+      - "\\bHY\\d{3}\\b"
+
+  - id: solr-indexing-failure
+    title: Solr indexing failure
+    component: Search / Solr indexing
+    severity: high
+    patterns:
+      - IndexerException
+      - indexer operation failed
+      - Error while indexing
+      - "(full|update|delete).?index.*(failed|error)"
+      - SolrIndexerException
+
+  - id: solr-query-failure
+    title: Solr query or connection failure
+    component: Search / Solr query
+    severity: high
+    patterns:
+      - SolrServerException
+      - RemoteSolrException
+      - FacetSearchException
+      - SolrClient.*(error|refused|timed out)
+
+  - id: rule-engine-failure
+    title: Promotion rule engine failure
+    component: Promotions / Rule engine
+    severity: high
+    patterns:
+      - DroolsException
+      - RuleEngineRuntimeException
+      - RuleCompilerException
+      - rule compilation
+      - KieModule
+      - "(promotion|rule) engine.*(error|failed)"
+
+  - id: business-process-failure
+    title: Business process failure
+    component: Order management / Business processes
+    severity: high
+    patterns:
+      - BusinessProcessException
+      - ProcessDefinitionNotFound
+      - "process .* (failed|error)"
+      - "action .* (failed|threw)"
+      - ProcessEngine
+
+  - id: checkout-failure
+    title: Cart calculation or payment failure
+    component: Checkout / Cart and payment
+    severity: high
+    patterns:
+      - InvalidCartException
+      - CalculationException
+      - PaymentException
+      - "authori[sz]ation (failed|declined)"
+      - PlaceOrderException
+
+  - id: hot-folder-failure
+    title: Cloud hot folder ingestion failure
+    component: Integration / Cloud hot folder
+    severity: high
+    patterns:
+      - hot ?folder
+      - CloudHotFolder
+      - MessagingException
+
+  - id: integration-api-failure
+    title: Integration API, OData or outbound sync failure
+    component: Integration / Integration API and OData
+    severity: medium
+    patterns:
+      - ODataException
+      - IntegrationObject
+      - outbound ?sync
+      - integrationservices
+      - ODataRequest
+
+  - id: outbound-http-failure
+    title: Outbound HTTP call failure or timeout
+    component: Integration / Outbound HTTP
+    severity: medium
+    patterns:
+      - SocketTimeoutException
+      - ConnectTimeoutException
+      - ResourceAccessException
+      - Connection refused
+      - Read timed out
+      - "connect timed out"
+      - UnknownHostException
+
+  - id: tomcat-thread-exhaustion
+    title: Request thread pool exhausted
+    component: Platform / Tomcat threads
+    severity: high
+    patterns:
+      - RejectedExecutionException
+      - thread pool exhausted
+      - maxThreads
+      - StuckThread
+
+  - id: cluster-messaging
+    title: Cluster messaging or invalidation problem
+    component: Platform / Cluster
+    severity: high
+    patterns:
+      - JGroups
+      - ClusterBroadcast
+      - InvalidationBroadcast
+      - "cluster (node|id).*(lost|failed|unreachable|duplicate)"
+
+  - id: cronjob-failure
+    title: CronJob failure
+    component: Background processing / CronJobs
+    severity: medium
+    patterns:
+      - "cron ?job.*(fail|error|abort)"
+      - CronJobResult\.ERROR
+      - JobPerformable.*(fail|error|exception)
+      - AbstractJobPerformable
+
+  - id: impex-failure
+    title: ImpEx import failure
+    component: Data import / ImpEx
+    severity: medium
+    patterns:
+      - ImpExException
+      - ImpExImportException
+      - "impex.*(error|failed|unresolved)"
+      - unresolved lines
+      - could not be resolved
+
+  - id: media-storage-failure
+    title: Media storage failure
+    component: Media / Azure blob storage
+    severity: medium
+    patterns:
+      - MediaStorageException
+      - MediaNotFoundException
+      - blob ?storage.*(error|fail)
+      - AzureBlob
+      - StorageException
+
+  - id: model-saving-failure
+    title: Model save or interceptor failure
+    component: ServiceLayer / Model lifecycle
+    severity: medium
+    patterns:
+      - ModelSavingException
+      - ModelRemovalException
+      - InterceptorException
+
+  - id: concurrency-conflict
+    title: Concurrent modification or optimistic lock
+    component: ServiceLayer / Concurrency
+    severity: medium
+    patterns:
+      - OptimisticLock
+      - ConcurrentModificationException
+      - CartLockedException
+      - "has been modified"
+
+  - id: data-lookup-failure
+    title: Unknown or ambiguous item lookup
+    component: ServiceLayer / Data lookups
+    severity: medium
+    patterns:
+      - AmbiguousIdentifierException
+      - UnknownIdentifierException
+      - ModelNotFoundException
+
+  - id: occ-auth-failure
+    title: OCC OAuth2 or access failure
+    component: OCC API / OAuth2
+    severity: low
+    patterns:
+      - InvalidTokenException
+      - InvalidGrantException
+      - invalid_token
+      - OAuth2Exception
+      - AccessDeniedException
+
+  - id: occ-request-failure
+    title: OCC request failure
+    component: OCC API
+    severity: medium
+    patterns:
+      - WebserviceErrorHandler
+      - commercewebservices
+      - "/occ/v2/"
+      - HttpMessageNotReadableException
+      - WebserviceValidationException
+
+  - id: jvm-gc-pause
+    title: Long garbage collection pause
+    component: JVM / Garbage collection
+    severity: medium
+    any_level: true
+    patterns:
+      - Pause Full
+      - Full GC
+      - GC pause.*\d{4,}\s?ms
+
+  - id: cache-warning
+    title: Cache region pressure
+    component: Platform / Caching
+    severity: low
+    patterns:
+      - cache region
+      - RegionCache
+      - CacheRegion

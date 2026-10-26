@@ -1,0 +1,48 @@
+{
+  "result": {
+    "records": [
+      {
+        "timestamp": "2026-10-20T09:30:00.000Z",
+        "loglevel": "ERROR",
+        "content": "{\"instant\": {\"epochSecond\": 1792488600, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"ERROR\", \"loggerName\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"message\": \"Rule engine module promotions-module failed to initialize, version 100\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\", \"thrown\": {\"name\": \"de.hybris.platform.ruleengine.exception.RuleEngineRuntimeException\", \"message\": \"KieModule build failed\", \"extendedStackTrace\": [{\"class\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"method\": \"initialize\", \"file\": \"DefaultPlatformRuleEngineService.java\", \"line\": 210}], \"cause\": {\"name\": \"java.lang.IllegalStateException\", \"message\": \"Duplicate rule code\"}}}",
+        "k8s.pod.name": "backgroundprocessing-5c6b7d8e9-klmno",
+        "k8s.container.name": "platform"
+      },
+      {
+        "timestamp": "2026-10-20T09:31:00.000Z",
+        "loglevel": "ERROR",
+        "content": "{\"instant\": {\"epochSecond\": 1792488660, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"ERROR\", \"loggerName\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"message\": \"Rule engine module promotions-module failed to initialize, version 101\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\", \"thrown\": {\"name\": \"de.hybris.platform.ruleengine.exception.RuleEngineRuntimeException\", \"message\": \"KieModule build failed\", \"extendedStackTrace\": [{\"class\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"method\": \"initialize\", \"file\": \"DefaultPlatformRuleEngineService.java\", \"line\": 210}], \"cause\": {\"name\": \"java.lang.IllegalStateException\", \"message\": \"Duplicate rule code\"}}}",
+        "k8s.pod.name": "backgroundprocessing-5c6b7d8e9-klmno",
+        "k8s.container.name": "platform"
+      },
+      {
+        "timestamp": "2026-10-20T09:32:00.000Z",
+        "loglevel": "ERROR",
+        "content": "{\"instant\": {\"epochSecond\": 1792488720, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"ERROR\", \"loggerName\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"message\": \"Rule engine module promotions-module failed to initialize, version 102\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\", \"thrown\": {\"name\": \"de.hybris.platform.ruleengine.exception.RuleEngineRuntimeException\", \"message\": \"KieModule build failed\", \"extendedStackTrace\": [{\"class\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"method\": \"initialize\", \"file\": \"DefaultPlatformRuleEngineService.java\", \"line\": 210}], \"cause\": {\"name\": \"java.lang.IllegalStateException\", \"message\": \"Duplicate rule code\"}}}",
+        "k8s.pod.name": "backgroundprocessing-5c6b7d8e9-klmno",
+        "k8s.container.name": "platform"
+      },
+      {
+        "timestamp": "2026-10-20T09:33:00.000Z",
+        "loglevel": "ERROR",
+        "content": "{\"instant\": {\"epochSecond\": 1792488780, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"ERROR\", \"loggerName\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"message\": \"Rule engine module promotions-module failed to initialize, version 103\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\", \"thrown\": {\"name\": \"de.hybris.platform.ruleengine.exception.RuleEngineRuntimeException\", \"message\": \"KieModule build failed\", \"extendedStackTrace\": [{\"class\": \"de.hybris.platform.ruleengine.impl.DefaultPlatformRuleEngineService\", \"method\": \"initialize\", \"file\": \"DefaultPlatformRuleEngineService.java\", \"line\": 210}], \"cause\": {\"name\": \"java.lang.IllegalStateException\", \"message\": \"Duplicate rule code\"}}}",
+        "k8s.pod.name": "backgroundprocessing-5c6b7d8e9-klmno",
+        "k8s.container.name": "platform"
+      },
+      {
+        "timestamp": "2026-10-20T09:31:00.000Z",
+        "loglevel": "INFO",
+        "content": "{\"instant\": {\"epochSecond\": 1792488660, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"INFO\", \"loggerName\": \"de.hybris.platform.servicelayer.internal.ServiceLayerFacade\", \"message\": \"Startup complete\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\"}",
+        "k8s.pod.name": "api-7d9f8c6b5-abcde",
+        "k8s.container.name": "platform"
+      },
+      {
+        "timestamp": "2026-10-20T09:32:00.000Z",
+        "loglevel": "ERROR",
+        "content": "{\"instant\": {\"epochSecond\": 1792488720, \"nanoOfSecond\": 0}, \"thread\": \"hybrisHTTP7\", \"level\": \"ERROR\", \"loggerName\": \"de.hybris.platform.commerceservices.order.impl.DefaultCommerceCheckoutService\", \"message\": \"Failed to place order for user <customer>\", \"endOfBatch\": false, \"loggerFqcn\": \"org.apache.logging.log4j.spi.AbstractLogger\", \"thrown\": {\"name\": \"de.hybris.platform.order.exceptions.CalculationException\", \"message\": \"Could not calculate cart\"}}",
+        "k8s.pod.name": "api-7d9f8c6b5-fghij",
+        "k8s.container.name": "platform"
+      }
+    ]
+  }
+}

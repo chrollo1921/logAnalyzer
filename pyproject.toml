@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sapcx-log-analyzer"
+version = "0.1.0"
+description = "LLM-assisted triage of SAP Commerce Cloud logs exported from Dynatrace"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.3,<3",
+    "jinja2>=3.1",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+sapcx-log-analyzer = "sapcx_log_analyzer.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sapcx_log_analyzer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N", "S", "PTH"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PTH"]
+"tests/fixtures/make_fixtures.py" = ["S", "PTH", "E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["live: calls the real Anthropic API (opt-in, needs ANTHROPIC_API_KEY)"]
+
+[tool.coverage.run]
+source = ["sapcx_log_analyzer"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

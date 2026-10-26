@@ -1,0 +1,89 @@
+# SAP Commerce log analysis: {{ m.source }}
+
+| | |
+|---|---|
+| Generated | {{ m.generated_at | dt }} |
+| Time range | {{ m.time_range_start | dt }} to {{ m.time_range_end | dt }} |
+| Records read | {{ m.total_records }} |
+| Records analysed (warnings, errors, known signatures) | {{ m.analyzed_records }} |
+| Distinct issues (clusters) | {{ clusters | length }} |
+| LLM analysis | {% if m.llm_used %}yes ({{ m.model }}){% else %}no (rules and clustering only){% endif %} |
+{%- if m.extra.redactions %}
+| Redacted values | {% for k, v in m.extra.redactions | dictsort %}{{ k }}: {{ v }}{% if not loop.last %}, {% endif %}{% endfor %} |
+{%- endif %}
+
+{% if a -%}
+## Summary
+
+**Overall severity: {{ a.overall_severity.value | upper }}**
+
+{{ a.summary }}
+
+{% if a.top_priorities -%}
+### Top priorities
+
+{% for p in a.top_priorities -%}
+{{ loop.index }}. {{ p }}
+{% endfor %}
+{% endif -%}
+
+## Findings
+
+{% for f in a.findings -%}
+### {{ loop.index }}. {{ f.title }}
+
+- **Severity:** {{ f.severity.value }} · **Confidence:** {{ "%.0f" | format(f.confidence * 100) }}% · **Component:** {{ f.component }}
+- **Clusters:** {% for cid in f.cluster_ids %}`{{ cid }}`{% if not loop.last %}, {% endif %}{% endfor %} ({{ f.cluster_ids | map("event_count") | sum }} events)
+
+{{ f.summary }}
+
+**Root cause:** {{ f.root_cause }}
+
+{% if f.recommended_actions -%}
+**Recommended actions:**
+
+{% for act in f.recommended_actions -%}
+{{ loop.index }}. *{{ act.type.value }}*: {{ act.description }}
+{% endfor %}
+{% endif -%}
+{% if f.evidence -%}
+**Evidence:**
+
+{% for e in f.evidence -%}
+- `{{ e | replace("`", "'") }}`
+{% endfor %}
+{% endif %}
+{% endfor -%}
+{% endif -%}
+
+## Issues by cluster
+
+| Severity | Component | Issue | Events | Aspects | First seen | Last seen | Cluster |
+|---|---|---|---:|---|---|---|---|
+{% for c in clusters -%}
+| {{ c.severity.value }} | {{ c.component }} | {{ c.title | cell }} | {{ c.count }} | {{ c.aspects | join(", ") or "-" }} | {{ c.first_seen | dt }} | {{ c.last_seen | dt }} | `{{ c.id }}` |
+{% endfor %}
+{% if timeline -%}
+## Timeline ({{ bucket_label }})
+
+| Bucket start | Critical | High | Medium | Low | Info |
+|---|---:|---:|---:|---:|---:|
+{% for b in timeline -%}
+| {{ b.start | dt }} | {{ b.counts.get(S.CRITICAL, 0) }} | {{ b.counts.get(S.HIGH, 0) }} | {{ b.counts.get(S.MEDIUM, 0) }} | {{ b.counts.get(S.LOW, 0) }} | {{ b.counts.get(S.INFO, 0) }} |
+{% endfor %}
+{% endif -%}
+
+## Cluster details
+
+{% for c in clusters -%}
+### `{{ c.id }}` {{ c.title }}
+
+- **Rule:** {{ c.rule_id }} · **Severity:** {{ c.severity.value }} · **Level:** {{ c.level.value }} · **Events:** {{ c.count }}
+- **Logger:** {{ c.logger or "-" }} · **Exception:** {{ c.exception_class or "-" }}{% if c.root_cause_class and c.root_cause_class != c.exception_class %} · **Root cause:** {{ c.root_cause_class }}{% endif %}
+- **Template:** `{{ c.template | replace("`", "'") }}`
+
+```text
+{{ c.samples[0] if c.samples else "" }}
+```
+
+{% endfor -%}

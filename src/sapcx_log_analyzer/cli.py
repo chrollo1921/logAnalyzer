@@ -1,0 +1,168 @@
+"""Command line interface."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from sapcx_log_analyzer import __version__
+from sapcx_log_analyzer.classify import RuleEngine
+from sapcx_log_analyzer.config import Effort, Settings, load_settings
+from sapcx_log_analyzer.ingest import ExportFormat
+from sapcx_log_analyzer.ingest.dynatrace_json import ExportFormatError
+from sapcx_log_analyzer.llm import LLMAnalyzer, LLMError, LLMProvider
+from sapcx_log_analyzer.models import LogLevel
+from sapcx_log_analyzer.pipeline import prepare
+from sapcx_log_analyzer.report import OutputFormat, render
+
+EXIT_INPUT_ERROR = 2
+EXIT_LLM_ERROR = 3
+
+app = typer.Typer(
+    help="Triage SAP Commerce Cloud logs exported from Dynatrace.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+
+
+def build_provider(settings: Settings) -> LLMProvider:
+    """Factory for the LLM backend; tests replace this."""
+    from sapcx_log_analyzer.llm.anthropic_provider import AnthropicProvider
+
+    return AnthropicProvider(settings)
+
+
+def _version(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Log progress to stderr.")
+    ] = False,
+    version: Annotated[
+        bool, typer.Option("--version", callback=_version, is_eager=True, help="Show version.")
+    ] = False,
+) -> None:
+    logging.basicConfig(
+        level=logging.INFO if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+
+@app.command()
+def analyze(
+    export_file: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True, help="Dynatrace export.")
+    ],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write the report here, not stdout.")
+    ] = None,
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f", help="Report format.")] = (
+        OutputFormat.MARKDOWN
+    ),
+    input_format: Annotated[
+        ExportFormat | None, typer.Option("--input-format", help="Override format detection.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", exists=True, dir_okay=False, help="YAML.")
+    ] = None,
+    no_llm: Annotated[
+        bool,
+        typer.Option("--no-llm", help="Rules and clustering only; nothing leaves the machine."),
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print exactly what would be sent to the model.")
+    ] = False,
+    model: Annotated[str | None, typer.Option(help="Claude model id.")] = None,
+    effort: Annotated[str | None, typer.Option(help="low, medium, high, xhigh or max.")] = None,
+    min_level: Annotated[
+        LogLevel | None, typer.Option("--min-level", help="Lowest level to analyse.")
+    ] = None,
+) -> None:
+    """Analyse a Dynatrace log export and write an incident report."""
+    try:
+        settings = load_settings(config, model=model, effort=_effort(effort), min_level=min_level)
+        prepared = prepare(export_file, settings, input_format)
+    except (ExportFormatError, ValueError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    report = prepared.report
+
+    if dry_run:
+        prompts = LLMAnalyzer(_NoCallProvider(settings.model), settings).build_prompts(
+            report.clusters, report.metadata
+        )
+        for index, prompt in enumerate(prompts, start=1):
+            typer.echo(f"===== request {index} of {len(prompts)} ({len(prompt)} chars) =====")
+            typer.echo(prompt)
+        return
+
+    if not no_llm:
+        try:
+            provider = build_provider(settings)
+            report.analysis = LLMAnalyzer(provider, settings).analyze(
+                report.clusters, report.metadata
+            )
+        except LLMError as exc:
+            typer.echo(f"LLM analysis failed: {exc}", err=True)
+            typer.echo("Re-run with --no-llm for a rules-only report.", err=True)
+            raise typer.Exit(EXIT_LLM_ERROR) from exc
+        report.metadata.llm_used = True
+        report.metadata.model = provider.model_name
+
+    text = render(report, fmt)
+    if output is None:
+        typer.echo(text, nl=False)
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"Wrote {fmt.value} report to {output}", err=True)
+
+
+@app.command("rules")
+def list_rules(
+    rules_file: Annotated[
+        Path | None,
+        typer.Option("--rules-file", exists=True, dir_okay=False, help="Extra project rules."),
+    ] = None,
+) -> None:
+    """List the classification rules in the order they are applied."""
+    try:
+        engine = RuleEngine.default(rules_file)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    for rule in engine.rules:
+        typer.echo(f"{rule.id:32} {rule.severity.value:8} {rule.component}")
+
+
+def _effort(value: str | None) -> Effort | None:
+    allowed = ("low", "medium", "high", "xhigh", "max")
+    if value is None:
+        return None
+    if value not in allowed:
+        raise typer.BadParameter(f"effort must be one of {', '.join(allowed)}")
+    return value  # type: ignore[return-value]
+
+
+class _NoCallProvider:
+    """Stands in for a provider when only the prompts are needed."""
+
+    def __init__(self, model: str) -> None:
+        self._model = model
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def complete_json(
+        self, *, system: str, prompt: str, schema: dict[str, object]
+    ) -> dict[str, object]:
+        raise AssertionError("dry run must not call the model")

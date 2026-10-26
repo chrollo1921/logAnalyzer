@@ -1,0 +1,128 @@
+timestamp,status,content,k8s.pod.name,k8s.container.name,dt.entity.cloud_application
+2026-10-20T09:00:00.000Z,INFO,INFO  [hybrisHTTP0] [DefaultCartFacade] Cart 00000 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:01:00.000Z,INFO,INFO  [hybrisHTTP1] [DefaultCartFacade] Cart 00001 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:02:00.000Z,INFO,INFO  [hybrisHTTP2] [DefaultCartFacade] Cart 00002 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:03:00.000Z,INFO,INFO  [hybrisHTTP3] [DefaultCartFacade] Cart 00003 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:04:00.000Z,INFO,INFO  [hybrisHTTP4] [DefaultCartFacade] Cart 00004 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:05:00.000Z,INFO,INFO  [hybrisHTTP5] [DefaultCartFacade] Cart 00005 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:06:00.000Z,INFO,INFO  [hybrisHTTP6] [DefaultCartFacade] Cart 00006 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:07:00.000Z,INFO,INFO  [hybrisHTTP7] [DefaultCartFacade] Cart 00007 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:08:00.000Z,INFO,INFO  [hybrisHTTP8] [DefaultCartFacade] Cart 00008 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:09:00.000Z,INFO,INFO  [hybrisHTTP9] [DefaultCartFacade] Cart 00009 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:10:00.000Z,INFO,INFO  [hybrisHTTP10] [DefaultCartFacade] Cart 000010 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:11:00.000Z,INFO,INFO  [hybrisHTTP11] [DefaultCartFacade] Cart 000011 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:12:00.000Z,INFO,INFO  [hybrisHTTP12] [DefaultCartFacade] Cart 000012 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:13:00.000Z,INFO,INFO  [hybrisHTTP13] [DefaultCartFacade] Cart 000013 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:14:00.000Z,INFO,INFO  [hybrisHTTP14] [DefaultCartFacade] Cart 000014 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:00.000Z,INFO,INFO  [hybrisHTTP15] [DefaultCartFacade] Cart 000015 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:16:00.000Z,INFO,INFO  [hybrisHTTP16] [DefaultCartFacade] Cart 000016 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:17:00.000Z,INFO,INFO  [hybrisHTTP17] [DefaultCartFacade] Cart 000017 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:18:00.000Z,INFO,INFO  [hybrisHTTP18] [DefaultCartFacade] Cart 000018 updated,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:19:00.000Z,INFO,INFO  [hybrisHTTP19] [DefaultCartFacade] Cart 000019 updated,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:01:00.000Z,INFO,INFO  [TaskExecutor-1] [IntegrationApiController] integrationservices request done,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:02:00.000Z,INFO,INFO  [cronJob] [CronJobManager] Cronjob 'cleanup-cronJob' started,backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:10:00.000Z,ERROR,"ERROR [hybrisHTTP30] [10.2.3.0] [DefaultProductService] Could not load product PK 8796093054980
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:10:30.000Z,ERROR,"ERROR [hybrisHTTP31] [10.2.3.1] [DefaultProductService] Could not load product PK 8796093054981
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:11:00.000Z,ERROR,"ERROR [hybrisHTTP32] [10.2.3.2] [DefaultProductService] Could not load product PK 8796093054982
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:11:30.000Z,ERROR,"ERROR [hybrisHTTP33] [10.2.3.3] [DefaultProductService] Could not load product PK 8796093054983
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:12:00.000Z,ERROR,"ERROR [hybrisHTTP34] [10.2.3.4] [DefaultProductService] Could not load product PK 8796093054984
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:12:30.000Z,ERROR,"ERROR [hybrisHTTP35] [10.2.3.5] [DefaultProductService] Could not load product PK 8796093054985
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:13:00.000Z,ERROR,"ERROR [hybrisHTTP36] [10.2.3.6] [DefaultProductService] Could not load product PK 8796093054986
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:13:30.000Z,ERROR,"ERROR [hybrisHTTP37] [10.2.3.7] [DefaultProductService] Could not load product PK 8796093054987
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:14:00.000Z,ERROR,"ERROR [hybrisHTTP38] [10.2.3.8] [DefaultProductService] Could not load product PK 8796093054988
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:14:30.000Z,ERROR,"ERROR [hybrisHTTP39] [10.2.3.9] [DefaultProductService] Could not load product PK 8796093054989
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:00.000Z,ERROR,"ERROR [hybrisHTTP40] [10.2.3.10] [DefaultProductService] Could not load product PK 8796093054990
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:30.000Z,ERROR,"ERROR [hybrisHTTP41] [10.2.3.11] [DefaultProductService] Could not load product PK 8796093054991
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+	at de.hybris.platform.jdbcwrapper.HybrisDataSource.getConnection(HybrisDataSource.java:120)
+	at de.hybris.platform.product.impl.DefaultProductService.getProductForCode(DefaultProductService.java:61)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:11:00.000Z,WARN,WARN  [hybrisHTTP40] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe0@example.com/carts/00012340 failed with 500,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:12:00.000Z,WARN,WARN  [hybrisHTTP41] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe1@example.com/carts/00012341 failed with 500,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:13:00.000Z,WARN,WARN  [hybrisHTTP42] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe2@example.com/carts/00012342 failed with 500,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:14:00.000Z,WARN,WARN  [hybrisHTTP43] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe3@example.com/carts/00012343 failed with 500,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:00.000Z,WARN,WARN  [hybrisHTTP44] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe4@example.com/carts/00012344 failed with 500,api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:16:00.000Z,WARN,WARN  [hybrisHTTP45] [DefaultWebserviceErrorHandler] Request /occ/v2/electronics/users/jane.doe5@example.com/carts/00012345 failed with 500,api-7d9f8c6b5-fghij,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:12:00.000Z,WARN,"WARN  [hybrisHTTP50] [OAuth2ExceptionHandler] InvalidTokenException: Invalid access token, Authorization: Bearer abcDEF123456ghiJKL0",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:13:00.000Z,WARN,"WARN  [hybrisHTTP51] [OAuth2ExceptionHandler] InvalidTokenException: Invalid access token, Authorization: Bearer abcDEF123456ghiJKL1",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:14:00.000Z,WARN,"WARN  [hybrisHTTP52] [OAuth2ExceptionHandler] InvalidTokenException: Invalid access token, Authorization: Bearer abcDEF123456ghiJKL2",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:00.000Z,WARN,"WARN  [hybrisHTTP53] [OAuth2ExceptionHandler] InvalidTokenException: Invalid access token, Authorization: Bearer abcDEF123456ghiJKL3",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:16:00.000Z,WARN,"WARN  [hybrisHTTP54] [OAuth2ExceptionHandler] InvalidTokenException: Invalid access token, Authorization: Bearer abcDEF123456ghiJKL4",api-7d9f8c6b5-abcde,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:00.000Z,ERROR,"ERROR [solrIndexer-thread-1] [DefaultIndexerService] Error while indexing electronicsIndex
+de.hybris.platform.solrfacetsearch.indexer.exceptions.IndexerException: indexer operation failed
+	at de.hybris.platform.solrfacetsearch.indexer.impl.DefaultIndexer.indexItems(DefaultIndexer.java:120)
+Caused by: org.apache.solr.client.solrj.SolrServerException: Server refused connection at: http://solr-master:8983/solr/master_electronics_Product",backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:15:12.000Z,ERROR,ERROR [cronJob] [CronJobManager] Cronjob 'full-electronicsIndex-cronJob' finished with result ERROR,backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:20:00.000Z,NONE,"Exception in thread ""TaskExecutor-3"" java.lang.OutOfMemoryError: Java heap space",backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:20:00.000Z,NONE,	at java.util.Arrays.copyOf(Arrays.java:3512),backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:20:00.000Z,NONE,	at de.hybris.platform.impex.jalo.imp.DefaultImportProcessor.processItemData(DefaultImportProcessor.java:200),backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:19:30.000Z,INFO,[gc] GC(1234) Pause Full (Allocation Failure) 3900M->3850M(4096M) 8123.456ms,backgroundprocessing-5c6b7d8e9-klmno,platform,CLOUD_APPLICATION-1234ABCD
+2026-10-20T09:25:00.000Z,WARN,WARN  [ImpExImportJob] [ImportProcessor] ImpEx import finished with 3 unresolved lines; connection jdbc:sqlserver://db;user=hybris;password=S3cr3tPass,backoffice-6f7a8b9c0-pqrst,platform,CLOUD_APPLICATION-1234ABCD

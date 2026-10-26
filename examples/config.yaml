@@ -1,0 +1,22 @@
+# Example settings file: sapcx-log-analyzer analyze export.csv --config examples/config.yaml
+# Environment variables (SAPCX_LA_<NAME>) override these values; CLI flags override both.
+# The Anthropic API key is never read from here: set ANTHROPIC_API_KEY or run `ant auth login`.
+
+model: claude-opus-5-5
+effort: high              # low | medium | high | xhigh | max
+max_output_tokens: 16000
+use_refusal_fallback: true
+
+min_level: WARN           # records below this are ignored unless a rule says any_level
+samples_per_cluster: 3
+timeline_bucket_minutes: 5
+
+max_chars_per_batch: 80000
+max_clusters_for_llm: 150
+
+extra_rules_file: examples/project_rules.yaml
+
+extra_redaction_patterns:
+  - name: customer_number
+    pattern: "\\bCUST-\\d{6,}\\b"
+    replacement: "<CUSTOMER>"
