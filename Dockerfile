@@ -2,10 +2,11 @@
 #
 #   docker build -t sapcx-log-analyzer .
 #   docker run -p 8765:8765 \
-#     -e ANTHROPIC_API_KEY -e SAPCX_LA_SERVER_ACCESS_TOKEN \
+#     --env-file .env -e SAPCX_LA_SERVER_ACCESS_TOKEN \
 #     -e SAPCX_LA_SERVER_ALLOWED_HOSTS='["logs.example.com"]' \
 #     sapcx-log-analyzer
 #
+# .env holds LITELLM_BASE_URL and LITELLM_API_KEY, or ANTHROPIC_API_KEY (see .env.example).
 # Put it behind your HTTPS reverse proxy. With company single sign-on in front, set
 # SAPCX_LA_SERVER_AUTH=header and make sure only the proxy can reach the container.
 

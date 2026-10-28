@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator
+import os
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -27,17 +28,25 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 class AnthropicProvider:
     """Calls the Messages API with structured outputs.
 
-    Credentials come from the environment (``ANTHROPIC_API_KEY`` or an ``ant auth``
-    profile). The SDK retries 408/409/429/5xx and connection errors with backoff.
-    Requests stream so large inputs and outputs never hit HTTP timeouts.
+    Credentials come from the environment: ``LITELLM_API_KEY`` and ``LITELLM_BASE_URL``
+    for a LiteLLM proxy, otherwise ``ANTHROPIC_API_KEY`` (and ``ANTHROPIC_BASE_URL``) or an
+    ``ant auth`` profile, which the SDK reads itself. The SDK retries 408/409/429/5xx and
+    connection errors with backoff. Requests stream so large inputs and outputs never hit
+    HTTP timeouts.
     """
 
     def __init__(self, settings: Settings, client: anthropic.Anthropic | None = None) -> None:
         self._settings = settings
-        self._client = client or anthropic.Anthropic(
-            timeout=settings.request_timeout_seconds,
-            max_retries=settings.max_retries,
-        )
+        if client is None:
+            # Unset options are None, so the SDK falls back to its own ANTHROPIC_* lookup.
+            options = client_options()
+            client = anthropic.Anthropic(
+                api_key=options.get("api_key"),
+                base_url=options.get("base_url"),
+                timeout=settings.request_timeout_seconds,
+                max_retries=settings.max_retries,
+            )
+        self._client = client
 
     @property
     def model_name(self) -> str:
@@ -140,6 +149,23 @@ class AnthropicProvider:
         return {"betas": [FALLBACK_BETA], "fallbacks": "default"}
 
 
+def client_options(environ: Mapping[str, str] = os.environ) -> dict[str, str]:
+    """Point the SDK at a LiteLLM proxy when ``LITELLM_*`` is set; else leave it to the SDK."""
+    key = environ.get("LITELLM_API_KEY", "").strip()
+    url = environ.get("LITELLM_BASE_URL", "").strip()
+    if key and not url:
+        raise LLMError(
+            "LITELLM_API_KEY is set but LITELLM_BASE_URL is not; set the proxy URL as well"
+        )
+    options: dict[str, str] = {}
+    if url:
+        # The SDK appends /v1/messages, so accept the proxy URL with or without /v1.
+        options["base_url"] = url.rstrip("/").removesuffix("/v1")
+    if key:
+        options["api_key"] = key
+    return options
+
+
 @contextmanager
 def _api_errors() -> Iterator[None]:
     """Turn SDK exceptions into LLMError with a message an operator can act on."""
@@ -147,7 +173,8 @@ def _api_errors() -> Iterator[None]:
         yield
     except anthropic.AuthenticationError as exc:
         raise LLMError(
-            "Anthropic authentication failed. Set ANTHROPIC_API_KEY or run `ant auth login`."
+            "Authentication failed. Check LITELLM_API_KEY (LiteLLM proxy) or ANTHROPIC_API_KEY, "
+            "or run `ant auth login`."
         ) from exc
     except anthropic.RateLimitError as exc:
         raise LLMError(f"Rate limited by the Anthropic API after retries: {exc.message}") from exc
@@ -160,7 +187,8 @@ def _api_errors() -> Iterator[None]:
         if "authentication method" not in str(exc):
             raise
         raise LLMError(
-            "No Anthropic credentials found. Set ANTHROPIC_API_KEY or run `ant auth login`."
+            "No Anthropic credentials found. Set LITELLM_API_KEY and LITELLM_BASE_URL for a "
+            "LiteLLM proxy, or ANTHROPIC_API_KEY, in the environment or a .env file."
         ) from exc
 
 

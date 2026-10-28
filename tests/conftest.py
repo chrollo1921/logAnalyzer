@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -10,16 +11,21 @@ from sapcx_log_analyzer.config import Settings
 from sapcx_log_analyzer.models import LogLevel, LogRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
+# The environment before any test ran; the opt-in live tests read credentials from it.
+ORIGINAL_ENV = dict(os.environ)
 
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep developer env vars from leaking into tests."""
-    import os
+    """Keep developer env vars and a developer's .env file from leaking into tests."""
+    from sapcx_log_analyzer import cli
 
     for key in list(os.environ):
         if key.startswith("SAPCX_LA_") and key != "SAPCX_LA_LIVE_TESTS":
             monkeypatch.delenv(key)
+        if key.startswith("LITELLM_") or key == "ANTHROPIC_BASE_URL":
+            monkeypatch.delenv(key)
+    monkeypatch.setattr(cli, "load_env_file", lambda path=None: False)
 
 
 @pytest.fixture

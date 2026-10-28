@@ -1,8 +1,9 @@
 """Runtime settings.
 
 Precedence, highest first: explicit overrides (CLI flags), environment variables
-prefixed ``SAPCX_LA_``, a YAML config file, then the defaults below. The Anthropic
-API key is never part of these settings: the SDK reads ``ANTHROPIC_API_KEY`` itself.
+prefixed ``SAPCX_LA_``, a YAML config file, then the defaults below. A ``.env`` file
+only fills in environment variables that are not already set. API keys are never part
+of these settings: the provider reads ``LITELLM_*`` or ``ANTHROPIC_*`` from the environment.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
@@ -79,6 +81,22 @@ class Settings(BaseSettings):
     # Extensibility
     extra_rules_file: Path | None = None
     extra_redaction_patterns: list[RedactionPattern] = Field(default_factory=list)
+
+
+def load_env_file(path: Path | None = None) -> bool:
+    """Copy variables from a .env file into the environment, keeping ones already set.
+
+    With no path, ``.env`` in the current folder is read if it exists. A path that was
+    asked for explicitly must exist. Returns whether a file was read.
+    """
+    if path is None:
+        path = Path(".env")
+        if not path.is_file():
+            return False
+    elif not path.is_file():
+        raise FileNotFoundError(f"Env file {path} does not exist")
+    load_dotenv(path, override=False, encoding="utf-8")
+    return True
 
 
 def load_settings(config_file: Path | None = None, **overrides: Any) -> Settings:

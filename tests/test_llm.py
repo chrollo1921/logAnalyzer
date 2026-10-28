@@ -17,7 +17,11 @@ from sapcx_log_analyzer.llm import (
     batch_clusters,
     cluster_payload,
 )
-from sapcx_log_analyzer.llm.anthropic_provider import FALLBACK_BETA, AnthropicProvider
+from sapcx_log_analyzer.llm.anthropic_provider import (
+    FALLBACK_BETA,
+    AnthropicProvider,
+    client_options,
+)
 from sapcx_log_analyzer.llm.schema import output_schema
 from sapcx_log_analyzer.models import (
     Cluster,
@@ -253,7 +257,7 @@ def _status_error(cls: type[anthropic.APIStatusError], status: int) -> anthropic
 @pytest.mark.parametrize(
     ("exc", "message"),
     [
-        (_status_error(anthropic.AuthenticationError, 401), "ANTHROPIC_API_KEY"),
+        (_status_error(anthropic.AuthenticationError, 401), "LITELLM_API_KEY"),
         (_status_error(anthropic.RateLimitError, 429), "Rate limited"),
         (_status_error(anthropic.InternalServerError, 500), "error 500"),
         (anthropic.APIConnectionError(request=_REQUEST), "Could not reach"),
@@ -270,6 +274,36 @@ def test_provider_builds_default_client(monkeypatch: pytest.MonkeyPatch) -> None
     provider = AnthropicProvider(Settings(max_retries=5, request_timeout_seconds=12))
     assert provider._client.max_retries == 5
     assert provider._client.timeout == 12
+
+
+def test_provider_uses_litellm_proxy_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-litellm")
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com/")
+    provider = AnthropicProvider(Settings(model="claude-opus-alias"))
+    assert provider._client.api_key == "sk-litellm"
+    assert str(provider._client.base_url).rstrip("/") == "https://litellm.example.com"
+    assert provider.model_name == "claude-opus-alias"
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected"),
+    [
+        ({}, {}),
+        ({"LITELLM_BASE_URL": " https://proxy:4000/v1/ "}, {"base_url": "https://proxy:4000"}),
+        (
+            {"LITELLM_BASE_URL": "https://proxy/llm", "LITELLM_API_KEY": "sk-1"},
+            {"base_url": "https://proxy/llm", "api_key": "sk-1"},
+        ),
+    ],
+)
+def test_client_options(environ: dict[str, str], expected: dict[str, str]) -> None:
+    assert client_options(environ) == expected
+
+
+def test_litellm_key_without_url_is_an_error() -> None:
+    with pytest.raises(LLMError, match="LITELLM_BASE_URL is not"):
+        client_options({"LITELLM_API_KEY": "sk-1"})
 
 
 # --- Anthropic provider: chat ---------------------------------------------------------
