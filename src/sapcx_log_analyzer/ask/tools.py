@@ -8,12 +8,14 @@ broad search cannot flood the conversation.
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from sapcx_log_analyzer.ask.http import HttpCall
 from sapcx_log_analyzer.ask.store import LogStore, Scope
 from sapcx_log_analyzer.models import LogLevel, LogRecord
 from sapcx_log_analyzer.parse.log4j_pattern import parse_timestamp
@@ -63,6 +65,13 @@ class ListIssuesInput(_Input):
         return value
 
 
+class ListApiCallsInput(ListIssuesInput):
+    identifier: str | None = Field(default=None, max_length=200)
+    path: str | None = Field(default=None, max_length=300)
+    min_status: int | None = Field(default=None, ge=100, le=599)
+    limit: int = Field(default=60, ge=1, le=300)
+
+
 class SearchLogsInput(ListIssuesInput):
     text: str | None = Field(default=None, max_length=200)
     min_level: Level = "TRACE"
@@ -88,10 +97,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "find_identifier",
         "description": (
             "Find every log record that mentions an identifier: a transaction id such as "
-            "tx-243232, an order or cart code, a trace id, correlation id, request id or a "
-            "<SESSION#...> token. Returns the records in time order and the other identifiers "
-            "that appear in them, which you can look up next. If nothing matches it suggests "
-            "similar known identifiers."
+            "tx-243232, a user or customer id, a B2B account (unit) id, an order or cart code, "
+            "a trace, correlation or request id, an API path such as /cart/323232/getDelivery, "
+            "or a <SESSION#...> or <EMAIL#...> token. Returns the records in time order and the "
+            "other identifiers that appear in them, which you can look up next. If nothing "
+            "matches it suggests similar known identifiers."
         ),
         "input_schema": _object(
             {
@@ -157,6 +167,28 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "transaction was a victim of a wider platform problem."
         ),
         "input_schema": _object({"start": _TIME, "end": _TIME}, []),
+    },
+    {
+        "name": "list_api_calls",
+        "description": (
+            "List HTTP requests (OCC and other API calls) with method, path, status and "
+            "duration, grouped by endpoint. Give `identifier` to see the requests of one user, "
+            "account, session, cart or order: the requests whose log lines mention it or share "
+            "a trace or correlation id with them. Filter by `path` substring, `min_status` "
+            "(e.g. 400 for failures only) and a time window. Use it for questions such as "
+            "'which APIs did this user hit' or 'how often did this endpoint fail'."
+        ),
+        "input_schema": _object(
+            {
+                "identifier": {"type": "string"},
+                "path": {"type": "string", "description": "Substring of the request path."},
+                "min_status": {"type": "integer"},
+                "start": _TIME,
+                "end": _TIME,
+                "limit": {"type": "integer", "description": "Max requests listed (default 60)."},
+            },
+            [],
+        ),
     },
 ]
 
@@ -291,12 +323,51 @@ def _list_issues(store: LogStore, args: ListIssuesInput) -> str:
     return "\n".join(lines)
 
 
+def _list_api_calls(store: LogStore, args: ListApiCallsInput) -> str:
+    calls, matched_by = store.api_calls(
+        identifier=args.identifier,
+        path=args.path,
+        min_status=args.min_status,
+        start=_time(args.start),
+        end=_time(args.end),
+    )
+    scope = f" for {args.identifier!r}" if args.identifier else ""
+    if args.identifier and matched_by == "none":
+        hint = store.suggest(args.identifier)
+        similar = f" Similar identifiers: {', '.join(hint)}." if hint else ""
+        return f"No record mentions {args.identifier!r}.{similar}"
+    if not calls:
+        return f"No HTTP requests{scope} match."
+    groups: dict[str, list[HttpCall]] = defaultdict(list)
+    for _, call in calls:
+        groups[f"{call.method} {call.endpoint}"].append(call)
+    lines = [f"{len(calls)} request(s){scope}, {len(groups)} endpoint(s):"]
+    for endpoint, group in sorted(groups.items(), key=lambda item: -len(item[1])):
+        statuses = Counter(c.status for c in group)
+        timed = [c.duration_ms for c in group if c.duration_ms is not None]
+        timing = f", max {max(timed)} ms" if timed else ""
+        status_text = ", ".join(f"{code}x{n}" for code, n in sorted(statuses.items()))
+        lines.append(f"- {endpoint}: {len(group)} ({status_text}{timing})")
+    shown = calls[: args.limit]
+    lines.append(f"\nRequests in time order (showing {len(shown)}):")
+    for ref, call in shown:
+        record = store.record(ref)
+        stamp = record.timestamp.isoformat(timespec="milliseconds") if record.timestamp else "-"
+        took = f" in {call.duration_ms} ms" if call.duration_ms is not None else ""
+        lines.append(
+            f"#{ref} {stamp} {call.method} {call.path} -> {call.status}{took} "
+            f"pod={record.pod or '-'}"
+        )
+    return "\n".join(lines)
+
+
 _HANDLERS: dict[str, tuple[type[_Input], Callable[[LogStore, Any], str]]] = {
     "find_identifier": (FindIdentifierInput, _find_identifier),
     "get_context": (GetContextInput, _get_context),
     "get_record": (GetRecordInput, _get_record),
     "search_logs": (SearchLogsInput, _search_logs),
     "list_issues": (ListIssuesInput, _list_issues),
+    "list_api_calls": (ListApiCallsInput, _list_api_calls),
 }
 
 
@@ -336,4 +407,10 @@ def describe_call(name: str, raw_input: Any) -> str:
             return f"Searching for {what!r}"
         case "list_issues":
             return "Checking which known platform issues were active"
+        case "list_api_calls":
+            if data.get("identifier"):
+                return f"Listing the API calls of {data['identifier']}"
+            if data.get("path"):
+                return f"Listing calls to {data['path']}"
+            return "Listing API calls"
     return f"Running {name}"

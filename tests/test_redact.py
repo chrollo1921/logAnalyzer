@@ -13,7 +13,6 @@ from tests.conftest import make_record
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("user jane.doe@example.com logged in", "user <EMAIL> logged in"),
         ("Authorization: Bearer abcDEF123456ghiJKL", "Authorization: Bearer <TOKEN>"),
         ("access_token=abcdefgh12345678&x=1", "access_token=<TOKEN>&x=1"),
         (
@@ -48,7 +47,8 @@ def test_counts_and_extra_patterns() -> None:
     redactor = Redactor(
         [RedactionPattern(name="customer_id", pattern=r"CUST-\d+", replacement="<CUSTOMER>")]
     )
-    assert redactor.redact("CUST-42 and a@b.io and c@d.io") == "<CUSTOMER> and <EMAIL> and <EMAIL>"
+    redacted = redactor.redact("CUST-42 and a@b.io and c@d.io")
+    assert re.fullmatch(r"<CUSTOMER> and <EMAIL#[0-9a-f]{8}> and <EMAIL#[0-9a-f]{8}>", redacted)
     assert redactor.counts == {"customer_id": 1, "email": 2}
 
 
@@ -58,10 +58,12 @@ def test_redact_record_covers_message_stack_and_thread() -> None:
         thread="hybrisHTTP1 a@b.io",
         stack=["x.YException: user c@d.io"],
     )
-    redacted = Redactor().redact_record(record)
-    assert redacted.message == "login failed for <EMAIL>"
-    assert redacted.thread == "hybrisHTTP1 <EMAIL>"
-    assert redacted.stack == ["x.YException: user <EMAIL>"]
+    redactor = Redactor()
+    redacted = redactor.redact_record(record)
+    token = redactor.link_token("EMAIL", "a@b.io")
+    assert redacted.message == f"login failed for {token}"
+    assert redacted.thread == f"hybrisHTTP1 {token}"
+    assert redacted.stack == [f"x.YException: user {redactor.link_token('EMAIL', 'c@d.io')}"]
     assert record.message == "login failed for a@b.io"  # original untouched
 
 
@@ -93,4 +95,19 @@ def test_redact_record_covers_context() -> None:
     redacted = redactor.redact_record(record)
     assert redacted.context["trace_id"] == "4bf92f3577b34da6"
     assert redacted.context["sessionId"] == redactor.link_token("SESSION", "s3cr3tsession")
-    assert redacted.context["user"] == "<EMAIL>"
+    assert redacted.context["user"] == redactor.link_token("EMAIL", "A@B.io")
+
+
+def test_emails_become_case_insensitive_link_tokens() -> None:
+    redactor = Redactor()
+    text = redactor.redact("user Jane.Doe@Example.com logged in, then jane.doe@example.com paid")
+    tokens = re.findall(r"<EMAIL#[0-9a-f]{8}>", text)
+    assert len(tokens) == 2 and tokens[0] == tokens[1]
+    assert "jane" not in text.lower()
+
+
+def test_hints_skip_patterns_that_cannot_match() -> None:
+    redactor = Redactor(
+        [RedactionPattern(name="x", pattern=r"secretword", replacement="<X>", hints=["never"])]
+    )
+    assert redactor.redact("secretword") == "secretword"

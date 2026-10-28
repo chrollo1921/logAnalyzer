@@ -85,6 +85,7 @@ class RuleEngine:
             )
             for rule in rules
         ]
+        self._any_level = [c for c in self._compiled if c.rule.any_level]
 
     @classmethod
     def default(cls, extra_rules_file: Path | None = None) -> RuleEngine:
@@ -92,10 +93,19 @@ class RuleEngine:
         extra = load_rules_file(extra_rules_file) if extra_rules_file else []
         return cls([*extra, *load_default_rules()])
 
-    def classify(self, record: LogRecord) -> Classification | None:
-        """Return the matching rule, a generic classification, or None for noise."""
+    def classify(
+        self, record: LogRecord, min_level: LogLevel | None = None
+    ) -> Classification | None:
+        """Return the matching rule, a generic classification, or None for noise.
+
+        With ``min_level``, records below it are only checked against ``any_level`` rules,
+        which is all a caller filtering on that level would keep anyway, and much faster
+        on exports full of INFO and DEBUG lines.
+        """
+        below = min_level is not None and record.level.rank < min_level.rank
+        candidates = self._any_level if below else self._compiled
         text = record.search_text()
-        for compiled in self._compiled:
+        for compiled in candidates:
             if compiled.matches(record, text):
                 rule = compiled.rule
                 return Classification(
@@ -106,7 +116,7 @@ class RuleEngine:
                     any_level=rule.any_level,
                 )
         severity = _SEVERITY_BY_LEVEL.get(record.level)
-        if severity is None:
+        if severity is None or below:
             return None
         return Classification(
             rule_id=UNCLASSIFIED_ID,

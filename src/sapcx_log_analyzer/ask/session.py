@@ -75,7 +75,7 @@ class AskSession:
         checkpoint = len(self.messages)
         # The question may contain a pasted log line; mask it the same way as the logs so
         # session ids map to the same tokens.
-        self.messages.append({"role": "user", "content": self._store.redactor.redact(question)})
+        self.messages.append({"role": "user", "content": self._store.redact_question(question)})
         steps: list[ToolStep] = []
         try:
             return self._run(steps, on_step)

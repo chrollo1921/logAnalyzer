@@ -28,6 +28,12 @@ _KIND_WORDS: tuple[tuple[str, str], ...] = (
     ("payment", "payment"),
     ("order", "order"),
     ("cart", "cart"),
+    ("b2bunit", "account"),
+    ("unit", "account"),
+    ("account", "account"),
+    ("customer", "user"),
+    ("user", "user"),
+    ("uid", "user"),
 )
 
 # "orderCode=00012345", "cart 00001234", "X-Request-Id: 7f3a...", "tx_id: 99812".
@@ -35,7 +41,9 @@ _KIND_WORDS: tuple[tuple[str, str], ...] = (
 _KEYED = re.compile(
     r"(?i)\b(?P<key>trace[_ -]?id|span[_ -]?id|correlation[_ -]?id|x-request-id|request[_ -]?id"
     r"|transaction(?:[_ -]?id)?|txn?[_ -]?id|order(?:[_ -]?(?:code|id|number|no))?"
-    r"|cart(?:[_ -]?(?:code|id))?|consignment(?:[_ -]?code)?|payment[_ -]?transaction(?:[_ -]?id)?)"
+    r"|cart(?:[_ -]?(?:code|id))?|consignment(?:[_ -]?code)?|payment[_ -]?transaction(?:[_ -]?id)?"
+    r"|(?:b2b[_ -]?)?unit(?:[_ -]?id)?|account(?:[_ -]?id)?|customer(?:[_ -]?id)?|user(?:[_ -]?id)?"
+    r"|uid)"
     r"\s*[=:#]?\s*['\"]?(?P<value>(?=[A-Za-z0-9._:-]*\d)[A-Za-z0-9][A-Za-z0-9._:-]{3,})"
 )
 # Self-describing ids: tx-243232, ORD-000123, REQ_88812.
@@ -45,6 +53,8 @@ _UUID = re.compile(
 )
 # W3C / Dynatrace trace ids are 32 hex characters.
 _TRACE_HEX = re.compile(r"\b(?P<value>[0-9a-f]{32})\b")
+# Placeholders such as <IP> carry no identity and would link unrelated records.
+_PLACEHOLDER = re.compile(r"^<[A-Z?]+>$")
 # Link tokens left by the redactor, e.g. <SESSION#1a2b3c4d>.
 _LINK_TOKEN = re.compile(r"(?P<value><[A-Z]+#[0-9a-f]+>)")
 _PREFIX_KIND = {"tx": "transaction", "txn": "transaction", "ord": "order", "req": "request"}
@@ -76,14 +86,16 @@ def _scan(text: str) -> Iterator[Identifier]:
     for match in _TRACE_HEX.finditer(text):
         yield Identifier("trace", match.group("value"))
     for match in _LINK_TOKEN.finditer(text):
-        yield Identifier("session", match.group("value"))
+        token = match.group("value")
+        yield Identifier("user" if token.startswith("<EMAIL") else "session", token)
 
 
 def identifiers_in(record: LogRecord) -> list[Identifier]:
     """Every identifier in a record, context values first, without duplicates."""
     found: dict[str, Identifier] = {}
     for key, value in record.context.items():
-        found.setdefault(value.lower(), Identifier(kind_of(key), value))
+        if not _PLACEHOLDER.match(value):
+            found.setdefault(value.lower(), Identifier(kind_of(key), value))
     texts = [record.message, *record.stack[:20]]
     for text in texts:
         for identifier in _scan(text):

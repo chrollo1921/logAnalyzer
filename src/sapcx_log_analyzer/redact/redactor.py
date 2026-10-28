@@ -21,16 +21,19 @@ DEFAULT_PATTERNS: tuple[RedactionPattern, ...] = (
         name="jwt",
         pattern=r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b",
         replacement="<JWT>",
+        hints=["eyj"],
     ),
     RedactionPattern(
         name="bearer_token",
         pattern=r"(?i)\b(bearer|access_token|refresh_token)([\s=:\"']+)[A-Za-z0-9._~+/-]{8,}=*",
         replacement=r"\1\2<TOKEN>",
+        hints=["bearer", "access_token", "refresh_token"],
     ),
     RedactionPattern(
         name="url_credentials",
         pattern=r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@",
         replacement=r"\1<USER>:<PASSWORD>@",
+        hints=["://"],
     ),
     RedactionPattern(
         name="password_assignment",
@@ -39,16 +42,20 @@ DEFAULT_PATTERNS: tuple[RedactionPattern, ...] = (
             r"([\"']?\s*[=:]\s*[\"']?)[^\s\"',;&]+"
         ),
         replacement=r"\1\2<SECRET>",
+        hints=["pass", "pwd", "secret", "api"],
     ),
     RedactionPattern(
         name="email",
-        pattern=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
-        replacement="<EMAIL>",
+        # SAP Commerce customer uids are usually emails, so they stay linkable as tokens.
+        pattern=r"\b(?P<value>[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b",
+        link_label="EMAIL",
+        hints=["@"],
     ),
     RedactionPattern(
         name="session_id",
         pattern=r"(?i)\b(?:jsessionid|sessionid|session_id)[=:]\s*(?P<value>[A-Za-z0-9._-]{8,})",
         link_label="SESSION",
+        hints=["session"],
     ),
     RedactionPattern(
         name="card_number",
@@ -60,6 +67,7 @@ DEFAULT_PATTERNS: tuple[RedactionPattern, ...] = (
         name="ipv4",
         pattern=r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b",
         replacement="<IP>",
+        hints=["."],
     ),
 )
 
@@ -75,6 +83,7 @@ class _Compiled:
     replacement: str
     luhn: bool
     link_label: str | None
+    hints: tuple[str, ...]
 
 
 class Redactor:
@@ -91,16 +100,29 @@ class Redactor:
             regex = re.compile(p.pattern)
             if p.link_label is not None and "value" not in regex.groupindex:
                 raise ValueError(f"Redaction pattern {p.name!r} needs a (?P<value>...) group")
-            self._compiled.append(_Compiled(p.name, regex, p.replacement, p.luhn, p.link_label))
+            self._compiled.append(
+                _Compiled(
+                    p.name,
+                    regex,
+                    p.replacement,
+                    p.luhn,
+                    p.link_label,
+                    tuple(h.lower() for h in p.hints),
+                )
+            )
         self._salt = secrets.token_bytes(16)
         self.counts: Counter[str] = Counter()
 
     def link_token(self, label: str, value: str) -> str:
-        digest = hashlib.blake2b(value.encode("utf-8"), key=self._salt, digest_size=4)
+        """Stable token for a value; case-insensitive, since emails and ids are."""
+        digest = hashlib.blake2b(value.lower().encode("utf-8"), key=self._salt, digest_size=4)
         return f"<{label}#{digest.hexdigest()}>"
 
     def redact(self, text: str) -> str:
+        lowered = text.lower()
         for item in self._compiled:
+            if item.hints and not any(hint in lowered for hint in item.hints):
+                continue
             if item.luhn:
                 text, hits = _subn_luhn(item, text)
             elif item.link_label is not None:

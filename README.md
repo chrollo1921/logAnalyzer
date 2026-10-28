@@ -49,10 +49,10 @@ sapcx-log-analyzer rules
 Exit codes: `0` success, `2` unreadable or invalid input, `3` the LLM call failed (re-run with
 `--no-llm` for a rules-only report).
 
-## Asking questions about a transaction
+## Asking questions about a transaction, user or API
 
-The report answers "what is broken overall". To ask about one transaction, order or request, load
-an export into a chat:
+The report answers "what is broken overall". To ask about one transaction, user, B2B account,
+session or API call, load an export into a chat:
 
 ```bash
 # Chat in the terminal
@@ -65,12 +65,35 @@ sapcx-log-analyzer ask export.json -q "What went wrong with transaction tx-24323
 sapcx-log-analyzer serve export.json          # then open http://localhost:8765/
 ```
 
+Questions it is built for:
+
+- What went wrong with transaction tx-243232? Why did order 00012345 fail?
+- What happened with account id 1234, and which APIs did they hit?
+- Why did the order fail for user 23dsfd (or for jane.doe@example.com)?
+- What is the reason for the failures of /cart/323232/getDelivery?
+- What happened in session 74E4F046B991AE27C8E483476E53AEAC?
+
+No export at hand? Generate a realistic, entirely synthetic one with planted incidents (a payment
+timeout for user `23dsfd`, a carrier timeout on `/cart/323232/getDelivery`, a missing permission and
+an order approval for B2B account `1234`, a database pool outage, a failed Solr CronJob):
+
+```bash
+sapcx-log-analyzer demo-export demo.json --size-mb 10
+sapcx-log-analyzer serve demo.json
+```
+
 Claude investigates with a handful of read-only lookups over the loaded export and shows each one as
 it runs:
 
-- **find an identifier**: every line that mentions a transaction id, order or cart code, trace id,
-  correlation or request id, plus the lines that share its trace or correlation id. Typos and
-  partial ids get suggestions.
+- **find an identifier**: every line that mentions a transaction id, user or customer id, B2B
+  account (unit) id, order or cart code, trace id, correlation or request id, session or email, plus
+  the lines that share its trace or correlation id. Typos and partial ids get suggestions.
+- **API calls**: the HTTP requests of a user, account, session, cart or order, or of one endpoint,
+  with status and duration, grouped by endpoint, for example
+  `GET /occ/v2/electronics/cart/{id}/getDelivery: 3 (504x3, max 10050 ms)`.
+  Requests come from access log lines and from application lines such as `Request POST ... failed
+  with 500`; access log lines are tied to a user through the trace id they share with the
+  application log.
 - **context**: the lines just before and after a line on the same thread, pod or across the
   environment. This matters because the line that fails often does not carry the id.
 - **search** by text, level, pod, aspect and time window, and **open** one record in full.
@@ -83,9 +106,22 @@ line locally, `/new` starts over and `/exit` quits. In the web page, click a `#r
 and its surroundings.
 
 Identifiers come from Dynatrace attributes (`trace_id`, `span_id`, `x-request-id` and similar), CCv2
-MDC values in the log4j2 JSON layout (`contextMap`) and from the message text (`orderCode=...`,
-`cart 00012345`, `tx-243232`, UUIDs, 32-character trace ids). Session ids are masked as stable
-`<SESSION#1a2b3c4d>` tokens, so lines of the same session can still be followed without exposing it.
+MDC values in the log4j2 JSON layout (`contextMap`, for example `userId`, `b2bUnitId`, `sessionId`)
+and from the message text (`orderCode=...`, `cart 00012345`, `customerId 23dsfd`, `tx-243232`,
+UUIDs, 32-character trace ids). Session ids and email addresses are masked as stable
+`<SESSION#1a2b3c4d>` and `<EMAIL#9f8e7d6c>` tokens, so lines of the same session or customer can
+still be followed without exposing them. Your question is masked the same way, so asking about
+`jane.doe@example.com` or a raw session id finds its token.
+
+### Large exports
+
+A 10 MB export (about 15,000 lines) loads in about 2 seconds and uses under 100 MB of memory; each
+lookup then takes milliseconds. The file is never sent to Claude as a whole (10 MB of logs would be
+about 2.5 million tokens, far more than a model can read, and expensive). Claude sees an overview
+of the export and only the lines its lookups return, each lookup capped at
+`ask_max_tool_result_chars`, so a typical question costs a few tens of thousands of tokens whatever
+the file size. Exports of 100 MB and more work the same way but take longer to load; narrow the
+Dynatrace query to the incident window where you can.
 
 The web server is meant for your own machine. It listens on `127.0.0.1` only, has no login, accepts
 JSON requests only and rejects requests for any other host name. If you bind it elsewhere with
@@ -109,6 +145,20 @@ fetch logs, from: -2h
 ```
 
 Including `INFO` lines is fine: they are dropped unless a rule needs them (GC pauses, for example).
+
+For `ask` and `serve`, export more of each request so a user, session or API call can be followed:
+keep `INFO` (the line that names the user or cart is usually INFO), keep the Tomcat or ingress
+access log lines, and add the trace ids that tie an access log line to the application lines of
+the same request.
+
+```
+fetch logs, from: "2026-10-20T08:00:00Z", to: "2026-10-20T10:00:00Z"
+| filter k8s.namespace.name == "<your-namespace>"
+| fields timestamp, loglevel, content, k8s.pod.name, k8s.container.name, trace_id, span_id
+```
+
+If your project logs the user, B2B unit or session in the MDC (log4j2 `contextMap`), every line of a
+request can be found by that id; if not, the trace id still links them.
 
 ## Configuration
 
@@ -147,6 +197,9 @@ Add a case to `tests/test_classify.py` for every new rule.
 ## Data protection
 
 - Redaction runs on every record before classification, clustering, reporting or any LLM call.
+- Session ids and email addresses become `<SESSION#...>` and `<EMAIL#...>` tokens: a short hash
+  with a random salt that changes on every run, so a token cannot be reversed or matched against
+  another run.
 - `analyze` sends only cluster summaries and a few redacted samples, never the raw export.
 - `ask` and `serve` send a summary of the export (time range, pods, counts) and the redacted log
   lines that Claude looks up for a question (each lookup is
@@ -179,7 +232,8 @@ Test fixtures in `tests/fixtures` are synthetic and generated by
 
 ```
 src/sapcx_log_analyzer/
-  cli.py          Typer CLI: analyze, ask, serve, rules
+  cli.py          Typer CLI: analyze, ask, serve, rules, demo-export
+  demo.py         Synthetic SAP Commerce Cloud export for trying the tool
   config.py       Settings (pydantic-settings)
   models.py       LogRecord, Cluster, Finding, Report
   pipeline.py     Wires the stages together

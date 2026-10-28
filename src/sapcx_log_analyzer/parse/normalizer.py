@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator
+from functools import lru_cache
 
 from sapcx_log_analyzer.models import LogLevel, LogRecord, RawEntry
 from sapcx_log_analyzer.parse.log4j_pattern import parse_pattern_line, parse_timestamp
@@ -55,12 +56,26 @@ def _pod(entry: RawEntry) -> str | None:
     return None
 
 
+_ASPECT_PATTERNS = tuple(
+    (aspect, re.compile(rf"(?:^|[-_.]){aspect}(?:$|[-_.])")) for aspect in KNOWN_ASPECTS
+)
+
+
+@lru_cache(maxsize=4096)
+def _aspect_of(name: str) -> str | None:
+    lowered = name.lower()
+    for aspect, pattern in _ASPECT_PATTERNS:
+        if pattern.search(lowered):
+            return aspect
+    return None
+
+
 def _aspect(entry: RawEntry) -> str | None:
-    names = [entry.attributes.get(key, "") for key in (*_ASPECT_KEYS, *_POD_KEYS)]
-    for name in names:
-        lowered = name.lower()
-        for aspect in KNOWN_ASPECTS:
-            if re.search(rf"(?:^|[-_.]){aspect}(?:$|[-_.])", lowered):
+    for key in (*_ASPECT_KEYS, *_POD_KEYS):
+        name = entry.attributes.get(key)
+        if name:
+            aspect = _aspect_of(name)
+            if aspect:
                 return aspect
     return None
 
