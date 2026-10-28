@@ -61,8 +61,8 @@ sapcx-log-analyzer ask export.json
 # One question, then exit (handy in scripts and tickets)
 sapcx-log-analyzer ask export.json -q "What went wrong with transaction tx-243232?"
 
-# The same chat as a local web page with clickable evidence
-sapcx-log-analyzer serve export.json          # then open http://localhost:8765/
+# A web chat: upload exports in the browser and ask questions about them
+sapcx-log-analyzer serve                      # then open http://localhost:8765/
 ```
 
 Questions it is built for:
@@ -79,7 +79,7 @@ an order approval for B2B account `1234`, a database pool outage, a failed Solr 
 
 ```bash
 sapcx-log-analyzer demo-export demo.json --size-mb 10
-sapcx-log-analyzer serve demo.json
+sapcx-log-analyzer serve                      # and upload demo.json in the browser
 ```
 
 Claude investigates with a handful of read-only lookups over the loaded export and shows each one as
@@ -102,7 +102,7 @@ it runs:
 
 The answer gives a short verdict, a timeline citing log lines as `#ref`, the root cause, next steps
 and a confidence level. Follow-up questions keep the context. In the terminal, `/record 42` prints a
-line locally, `/new` starts over and `/exit` quits. In the web page, click a `#ref` to see the line
+line locally, `/new` starts over and `/exit` quits. In the web chat, click a `#ref` to see the line
 and its surroundings.
 
 Identifiers come from Dynatrace attributes (`trace_id`, `span_id`, `x-request-id` and similar), CCv2
@@ -123,10 +123,55 @@ of the export and only the lines its lookups return, each lookup capped at
 the file size. Exports of 100 MB and more work the same way but take longer to load; narrow the
 Dynatrace query to the incident window where you can.
 
-The web server is meant for your own machine. It listens on `127.0.0.1` only, has no login, accepts
-JSON requests only and rejects requests for any other host name. If you bind it elsewhere with
-`--host`, anyone who can reach the port can read the logs and spend API credits; pass the address
-users will type with `--allow-host`.
+## The web chat for a team
+
+`sapcx-log-analyzer serve` runs a web app in which people upload a Dynatrace export (drag and drop,
+JSON, NDJSON or CSV) and then chat about it. Several people can use one server at the same time:
+
+- Everyone has their own files and conversations. A file is visible only to the person who
+  uploaded it until they tick **Share**; then everyone signed in can ask about it, each in their own
+  conversation.
+- Uploads are parsed and redacted in the background (a 10 MB file takes 2 to 3 seconds) and the
+  raw file is deleted as soon as it has been read. Only the redacted copy is kept, in memory.
+- Files nobody has used for `server_upload_idle_hours` are removed, and a restart clears everything.
+- At most `server_max_concurrent_questions` questions are answered at once, so a busy team cannot
+  exhaust the Anthropic rate limit; the others wait their turn and see that they are waiting.
+- The Anthropic API key lives on the server only. People using the chat do not need one.
+
+On your own machine it needs no sign-in and listens on `127.0.0.1`. For a team, run it on a server
+or in a container behind your HTTPS reverse proxy and pick a sign-in mode with `--auth` or
+`SAPCX_LA_SERVER_AUTH`:
+
+| Mode | Who can sign in | Use it when |
+|---|---|---|
+| `none` | Anyone who can reach the server (allowed on `127.0.0.1` only) | Trying it on your laptop |
+| `token` | Anyone with the team access key in `SAPCX_LA_SERVER_ACCESS_TOKEN`, who also enters a name | A small team without single sign-on |
+| `header` | Whoever your SSO proxy (oauth2-proxy, an identity-aware proxy, an API gateway) signed in; the app reads their email from `X-Forwarded-Email` (`server_user_header`) | Company login in front of the app; make sure only the proxy can reach it |
+
+```bash
+# A team server with an access key
+export ANTHROPIC_API_KEY=...
+export SAPCX_LA_SERVER_ACCESS_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+sapcx-log-analyzer serve --host 0.0.0.0 --auth token --allow-host logs.example.com
+
+# The same in a container (see Dockerfile)
+docker build -t sapcx-log-analyzer .
+docker run -p 8765:8765 -e ANTHROPIC_API_KEY -e SAPCX_LA_SERVER_ACCESS_TOKEN \
+  -e SAPCX_LA_SERVER_ALLOWED_HOSTS='["logs.example.com"]' sapcx-log-analyzer
+```
+
+The server refuses to start without sign-in on any address but `127.0.0.1`, and in `token` mode
+without a key of at least 16 characters. It serves only the host names you list with
+`--allow-host` or `server_allowed_hosts` (DNS rebinding), requires an `X-Requested-With` header on
+every request that changes something and uses `SameSite=Strict` session cookies (cross-site
+requests), and limits the upload size. Sign-ins, uploads, shares and questions are logged with the
+user's name, never with the question's text. `/healthz` is there for container health checks.
+
+Run one server process: files and conversations live in its memory, and one process serves many
+people because answers wait on Claude, not on the CPU. Plan about 7 times the export size in memory
+per loaded file (a 10 MB export takes about 70 MB), so the defaults of 30 files of up to 100 MB fit
+in a few GB. Keep a reverse proxy that streams responses (for nginx, the app sends
+`X-Accel-Buffering: no`) so progress shows while Claude investigates.
 
 ## Exporting logs from Dynatrace
 
@@ -179,6 +224,16 @@ file passed with `--config`, and built-in defaults. See [`examples/config.yaml`]
 | `ask_effort` | `SAPCX_LA_ASK_EFFORT` | `medium` | Effort for `ask` and `serve`; `high` digs deeper but answers slower |
 | `ask_max_tool_rounds` | `SAPCX_LA_ASK_MAX_TOOL_ROUNDS` | `12` | Lookup rounds per question before Claude must answer |
 | `ask_max_tool_result_chars` | `SAPCX_LA_ASK_MAX_TOOL_RESULT_CHARS` | `24000` | Cap on one lookup result sent to the model |
+| `server_auth` | `SAPCX_LA_SERVER_AUTH` | `none` | Web chat sign-in: `none`, `token` or `header` |
+| `server_access_token` | `SAPCX_LA_SERVER_ACCESS_TOKEN` | none | Team access key for `token`; keep it in your secret store |
+| `server_user_header` | `SAPCX_LA_SERVER_USER_HEADER` | `X-Forwarded-Email` | Header your SSO proxy sets, for `header` |
+| `server_allowed_hosts` | `SAPCX_LA_SERVER_ALLOWED_HOSTS` | none | Host names people use in the browser, as a JSON list in the env var |
+| `server_max_upload_mb` | `SAPCX_LA_SERVER_MAX_UPLOAD_MB` | `100` | Largest upload |
+| `server_max_uploads_per_user` | `SAPCX_LA_SERVER_MAX_UPLOADS_PER_USER` | `5` | Files one person can have loaded |
+| `server_max_uploads` | `SAPCX_LA_SERVER_MAX_UPLOADS` | `30` | Files loaded on the server in total |
+| `server_upload_idle_hours` | `SAPCX_LA_SERVER_UPLOAD_IDLE_HOURS` | `8` | Unused files are removed after this |
+| `server_session_hours` | `SAPCX_LA_SERVER_SESSION_HOURS` | `12` | How long a sign-in lasts |
+| `server_max_concurrent_questions` | `SAPCX_LA_SERVER_MAX_CONCURRENT_QUESTIONS` | `4` | Questions answered at once; the rest wait |
 | `extra_rules_file` | `SAPCX_LA_EXTRA_RULES_FILE` | none | Project rules, checked before the built-in ones |
 | `extra_redaction_patterns` | | none | Extra regexes to mask, such as customer numbers |
 
@@ -203,7 +258,10 @@ Add a case to `tests/test_classify.py` for every new rule.
 - `analyze` sends only cluster summaries and a few redacted samples, never the raw export.
 - `ask` and `serve` send a summary of the export (time range, pods, counts) and the redacted log
   lines that Claude looks up for a question (each lookup is
-  capped), plus your question, which is redacted the same way. The export itself stays local.
+  capped), plus your question, which is redacted the same way. The export itself never goes to
+  Claude.
+- The web chat deletes an uploaded file as soon as it has been parsed and keeps only the redacted
+  copy in memory, visible to the uploader and, if they share it, to everyone signed in.
 - `--no-llm` keeps everything local. `--dry-run` prints the exact request bodies for review.
 - Review the default patterns in `redact/redactor.py` against your own data before first use and add
   project-specific ones via `extra_redaction_patterns`.
@@ -244,7 +302,8 @@ src/sapcx_log_analyzer/
   cluster/        Fingerprinting, aggregation, timeline
   llm/            Provider interface, Anthropic provider, prompts, map-reduce analyzer
   report/         Markdown, JSON and HTML rendering
-  ask/            Interactive questions: searchable store, identifiers, tools, chat loop, web UI
+  ask/            Interactive questions: searchable store, identifiers, tools, chat loop
+  server/         Web chat: uploads, sign-in, per-user files and conversations, page
 ```
 
 ## Not yet included
@@ -252,4 +311,6 @@ src/sapcx_log_analyzer/
 - Pulling logs directly from the Dynatrace API (the ingest layer is ready for another source).
 - A web UI for the report itself (the `serve` chat covers questions; the JSON report is the stable
   contract for a report UI).
+- Keeping uploads across restarts or sharing them between several server processes (state is in
+  memory by design, so the raw logs are never stored).
 - Trend analysis across several runs.

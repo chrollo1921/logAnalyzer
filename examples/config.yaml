@@ -23,3 +23,12 @@ extra_redaction_patterns:
     # Optional: only try the pattern on lines that contain one of these strings (any case),
     # which keeps loading large exports fast.
     hints: ["cust-"]
+
+# Web chat (`serve`). Keep the access key out of this file: set SAPCX_LA_SERVER_ACCESS_TOKEN.
+server_auth: token
+server_allowed_hosts: ["logs.example.com"]
+server_max_upload_mb: 100
+server_max_uploads_per_user: 5
+server_max_uploads: 30
+server_upload_idle_hours: 8
+server_max_concurrent_questions: 4

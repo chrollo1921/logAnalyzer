@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     InitSettingsSource,
@@ -22,6 +22,7 @@ from pydantic_settings import (
 from sapcx_log_analyzer.models import LogLevel
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
+ServerAuth = Literal["none", "token", "header"]
 
 
 class RedactionPattern(BaseModel):
@@ -62,6 +63,18 @@ class Settings(BaseSettings):
     ask_effort: Effort = "medium"
     ask_max_tool_rounds: int = Field(default=12, ge=1, le=50)
     ask_max_tool_result_chars: int = Field(default=24_000, gt=1000)
+
+    # Shared web app (`serve`)
+    server_auth: ServerAuth = "none"
+    server_access_token: SecretStr | None = None  # for "token"; set it in the environment
+    server_user_header: str = "X-Forwarded-Email"  # for "header", set by the SSO proxy
+    server_allowed_hosts: list[str] = Field(default_factory=list)
+    server_max_upload_mb: int = Field(default=100, ge=1, le=2000)
+    server_max_uploads_per_user: int = Field(default=5, ge=1)
+    server_max_uploads: int = Field(default=30, ge=1)
+    server_upload_idle_hours: float = Field(default=8, gt=0)
+    server_session_hours: float = Field(default=12, gt=0)
+    server_max_concurrent_questions: int = Field(default=4, ge=1)
 
     # Extensibility
     extra_rules_file: Path | None = None
