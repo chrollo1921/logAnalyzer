@@ -221,7 +221,8 @@ def ask(
 
     examples = store.sample_identifiers()
     typer.echo(
-        "Ask about a transaction, order, trace or correlation id"
+        "Ask about the whole file (what were the main problems? is checkout slower than "
+        "usual?) or about one transaction, user, order or trace id"
         + (f", for example: what went wrong with {examples[0]}?" if examples else ".")
         + "\nCommands: /record <ref> shows a log line, /new starts over, /exit quits.",
         err=True,

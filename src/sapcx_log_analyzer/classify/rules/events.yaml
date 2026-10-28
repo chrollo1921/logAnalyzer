@@ -1,0 +1,70 @@
+# Lifecycle events: things that happen to the platform rather than failures. None of them
+# is a problem on its own, but an outage often starts shortly after one (a deployment, a
+# catalog synchronization, a full Solr index), so the export profile lists them and checks
+# them as possible precursors of an incident.
+#
+# Patterns are Python regular expressions, matched case-insensitively against the first
+# line of the message. The first matching event wins, so keep specific events first.
+
+events:
+  - id: server-start
+    title: Server started
+    patterns:
+      - Server startup in
+      - \bStarted \w+ in [\d.]+ seconds
+      - initialization completed in \d+
+
+  - id: server-stop
+    title: Server stopping
+    patterns:
+      - Stopping service \[Catalina\]
+      - Pausing ProtocolHandler
+      - \bshutting down\b
+      - \bshutdown hook\b
+
+  - id: system-update
+    title: System update or initialization
+    patterns:
+      - \bupdating (?:the )?(?:running )?system\b
+      - \bsystem (?:update|initiali[sz]ation) (?:started|finished|completed)\b
+
+  - id: catalog-sync
+    title: Catalog synchronization
+    patterns:
+      - \bsync\w*\b.*catalog
+      - \bcatalog ?version ?sync
+
+  - id: solr-index
+    title: Solr indexing
+    patterns:
+      - \b(?:full|update|delete|partial)[ -]?index\w*\b.*\b(?:start|finish|complet)
+      - \bindexer operation\b.*\b(?:start|finish|complet)
+
+  - id: integration-failover
+    title: Integration failover
+    patterns:
+      - \bfail ?over\b
+      - \bswitch(?:ed|ing)? (?:back )?(?:to|from) (?:the )?(?:fallback|backup|secondary)\b
+      - \bcircuit ?breaker\b.*\b(?:open|closed|half)
+
+  - id: cronjob-start
+    title: CronJob started
+    patterns:
+      - \bstarting (?:cron ?job|job)\b
+      - \bcron ?job\b.*\bstart(?:ed|ing)\b
+
+  - id: cronjob-end
+    title: CronJob finished
+    patterns:
+      - \bcron ?job\b.*\bfinished with result\b
+
+  - id: cache-clear
+    title: Cache cleared
+    patterns:
+      - \bclear(?:ing|ed)? (?:the )?(?:\w+ )?cache\b
+      - \bcache (?:invalidat|clear)
+
+  - id: hot-folder
+    title: Hot folder import
+    patterns:
+      - \bhot ?folder\b.*\b(?:start|finish|complet|import)

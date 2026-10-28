@@ -19,6 +19,8 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from sapcx_log_analyzer.ask.analysis import Analysis, alternatives
+from sapcx_log_analyzer.ask.digest import render_digest
 from sapcx_log_analyzer.ask.http import HttpCall, http_call
 from sapcx_log_analyzer.ask.identifiers import Identifier, identifiers_in
 from sapcx_log_analyzer.classify import RuleEngine
@@ -83,6 +85,8 @@ class LogStore:
         self._groups: dict[tuple[Scope, str], list[int]] = defaultdict(list)
         self._calls: dict[int, HttpCall] = {}
         self._overview: dict[str, object] | None = None
+        stamps = [r.timestamp for r in records if r.timestamp is not None]
+        self._range = (min(stamps), max(stamps)) if stamps else None
         # Values on more records than this (a tenant name, a shared IP) do not identify anything.
         self._common = max(100, len(records) // 20)
         for position, record in enumerate(records):
@@ -101,6 +105,9 @@ class LogStore:
             elif record.thread:
                 self._groups[(Scope.THREAD, f"\x00{record.thread}")].append(ref)
             self._groups[(Scope.ALL, "")].append(ref)
+        self._digest: str | None = None
+        # Patterns, time series and incidents; needs the indexes above.
+        self.analysis = Analysis(self)
 
     # --- loading ----------------------------------------------------------------------
 
@@ -156,6 +163,14 @@ class LogStore:
         if not 1 <= ref <= len(self._records):
             raise KeyError(f"No record #{ref}; valid refs are 1 to {len(self._records)}")
         return self._records[ref - 1]
+
+    def call_at(self, ref: int) -> HttpCall | None:
+        """The HTTP request a record describes, if it is an access log or request line."""
+        return self._calls.get(ref)
+
+    def time_range(self) -> tuple[datetime, datetime] | None:
+        """The first and last timestamp in the export, or None when no line has one."""
+        return self._range
 
     def classification(self, ref: int) -> Classification | None:
         return self._classifications[ref - 1]
@@ -287,13 +302,17 @@ class LogStore:
             # A token is a salted hash: one that is not in the index has no near misses.
             return []
         digits = re.sub(r"\D", "", key)
+        # Only ids of about the same length: "99zz99" is not a near miss of a trace id that
+        # happens to contain "9999".
+        slack = max(3, len(key) // 2)
+        index = [k for k in self._index if abs(len(k) - len(key)) <= slack]
         candidates = [
             k
-            for k in self._index
+            for k in index
             if (digits and len(digits) >= 3 and digits in k) or key in k or k in key
         ]
         if len(candidates) < limit:
-            candidates.extend(difflib.get_close_matches(key, list(self._index), n=limit))
+            candidates.extend(difflib.get_close_matches(key, index, n=limit))
         seen: list[str] = []
         for candidate in candidates:
             display = self._display[candidate].value
@@ -338,7 +357,7 @@ class LogStore:
         end: datetime | None = None,
         limit: int = 50,
     ) -> tuple[list[int], int]:
-        needle = text.lower() if text else None
+        terms = alternatives(text)
         refs = []
         for ref in self._iter_refs():
             record = self.record(ref)
@@ -352,7 +371,7 @@ class LogStore:
                 continue
             if end and (record.timestamp is None or record.timestamp > end):
                 continue
-            if needle and needle not in _haystack(record):
+            if terms and not any(term in _haystack(record) for term in terms):
                 continue
             refs.append(ref)
         return refs[:limit], len(refs)
@@ -396,10 +415,18 @@ class LogStore:
             "pods": sorted({r.pod for r in self._records if r.pod})[:30],
             "identifiers_by_kind": dict(kinds.most_common()),
             "known_issue_clusters": len(self.clusters),
+            "message_patterns": len(self.analysis.patterns),
+            "candidate_incidents": len(self.analysis.incidents),
             "issues_by_severity": dict(
                 Counter(c.severity.value for c in self.clusters).most_common()
             ),
         }
+
+    def digest(self) -> str:
+        """The export profile as text for the system prompt, computed once."""
+        if self._digest is None:
+            self._digest = render_digest(self)
+        return self._digest
 
     def sample_identifiers(
         self, kinds: Iterable[str] = ("transaction", "order", "trace")

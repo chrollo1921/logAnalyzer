@@ -177,6 +177,7 @@ class UploadRegistry:
         overview = None
         if store is not None:
             overview = {**store.overview(), "examples": store.sample_identifiers()}
+            store.digest()  # here in the loader thread, not in the first conversation
         with self._lock:
             upload.store, upload.overview, upload.error = store, overview, error
             upload.status = UploadStatus.READY if store is not None else UploadStatus.FAILED

@@ -46,6 +46,8 @@ def test_question_runs_tools_and_returns_cited_answer(store: LogStore) -> None:
     # System prompt first, export overview second (the cached block).
     system = provider.requests[0]["system"]
     assert "SAP Commerce Cloud" in system[0]
+    assert "When the answer is not in this export" in system[0]
+    assert '"time_range_start": "2026-10-20T09:39:40+00:00"' in system[1]
     assert '"records": 15' in system[1]
     assert {t["name"] for t in provider.requests[0]["tools"]} >= {"find_identifier", "get_context"}
 

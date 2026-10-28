@@ -18,6 +18,7 @@ from sapcx_log_analyzer.models import LogLevel
 from tests.conftest import FIXTURES, make_record
 
 TRACE_FAILED = "4bf92f3577b34da6a3ce929d0e0e4736"
+COVERAGE = "This export covers 2026-10-20T09:39:40+00:00 to 2026-10-20T09:45:00+00:00."
 
 
 @pytest.fixture(scope="module")
@@ -183,8 +184,9 @@ def test_find_identifier_tool_output(store: LogStore) -> None:
     assert "[issue=db-connection-pool-exhausted]" in text
     missing = run_tool(store, "find_identifier", {"value": "tx-243299"}, 50_000)
     assert "No record mentions 'tx-243299'" in missing and "tx-243232" in missing
+    assert "which are different ids" in missing
     nothing = run_tool(store, "find_identifier", {"value": "zz"}, 50_000)
-    assert "outside this export's time range" in nothing
+    assert COVERAGE in nothing and "outside that time range" in nothing
 
 
 def test_other_tools(store: LogStore) -> None:
@@ -205,7 +207,60 @@ def test_other_tools(store: LogStore) -> None:
     )
     assert "Database connection pool exhausted" in issues
     none = run_tool(store, "list_issues", {"start": "2030-01-01T00:00:00Z"}, 50_000)
-    assert none == "No known problem patterns in this window."
+    assert none.startswith("No known problem patterns in this window.")
+    assert "The requested time window is outside this export" in none and COVERAGE in none
+
+
+# --- questions outside the export -------------------------------------------------
+
+
+def test_time_range(store: LogStore) -> None:
+    first, last = store.time_range() or (None, None)
+    assert first == datetime(2026, 10, 20, 9, 39, 40, tzinfo=UTC)
+    assert last == datetime(2026, 10, 20, 9, 45, tzinfo=UTC)
+    assert LogStore("empty", [], [], [], [], store.redactor).time_range() is None
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "empty", "note"),
+    [
+        (
+            "search_logs",
+            {"text": "Hikari", "start": "2026-10-21T00:00:00Z"},
+            "No records match.",
+            "The requested time window is outside this export",
+        ),
+        (
+            "list_issues",
+            {"start": "2026-10-19T00:00:00Z", "end": "2026-10-19T23:59:59Z"},
+            "No known problem patterns in this window.",
+            "The requested time window is outside this export",
+        ),
+        (
+            "list_issues",
+            {"start": "2026-10-20T08:00:00Z", "end": "2026-10-20T09:41:00Z"},
+            "- critical | Database connection pool exhausted",
+            "Part of the requested time window is outside this export",
+        ),
+        (
+            "search_logs",
+            {"text": "capture", "end": "2026-10-20T23:00:00Z"},
+            "1 record(s) match",
+            "Part of the requested time window is outside this export",
+        ),
+    ],
+)
+def test_windows_outside_the_export_are_called_out(
+    store: LogStore, name: str, args: dict[str, str], empty: str, note: str
+) -> None:
+    text = run_tool(store, name, args, 50_000)
+    assert empty in text and note in text and COVERAGE in text
+
+
+def test_windows_inside_the_export_have_no_note(store: LogStore) -> None:
+    window = {"start": "2026-10-20T09:40:00Z", "end": "2026-10-20T09:41:00Z"}
+    for name in ("search_logs", "list_issues", "list_api_calls"):
+        assert "outside this export" not in run_tool(store, name, window, 50_000)
 
 
 @pytest.mark.parametrize(
