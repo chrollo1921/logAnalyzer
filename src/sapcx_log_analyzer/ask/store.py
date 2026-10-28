@@ -19,6 +19,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from sapcx_log_analyzer.ask.http import HttpCall, http_call
 from sapcx_log_analyzer.ask.identifiers import Identifier, identifiers_in
 from sapcx_log_analyzer.classify import RuleEngine
 from sapcx_log_analyzer.cluster import ClusterAggregator
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 # Identifier kinds that belong to exactly one request, so sharing one links two records.
 # Sessions, carts and orders span several requests and are left for the model to follow.
 LINK_KINDS = frozenset({"trace", "correlation", "request"})
+_LINK_TOKEN = re.compile(r"^<[a-z]+#[0-9a-f]+>$")
 
 
 class Scope(StrEnum):
@@ -79,8 +81,14 @@ class LogStore:
         self._index: dict[str, list[int]] = defaultdict(list)
         self._display: dict[str, Identifier] = {}
         self._groups: dict[tuple[Scope, str], list[int]] = defaultdict(list)
+        self._calls: dict[int, HttpCall] = {}
+        # Values on more records than this (a tenant name, a shared IP) do not identify anything.
+        self._common = max(100, len(records) // 20)
         for position, record in enumerate(records):
             ref = position + 1
+            call = http_call(record)
+            if call is not None:
+                self._calls[ref] = call
             for identifier in identifiers_in(record):
                 key = identifier.value.lower()
                 self._index[key].append(ref)
@@ -123,7 +131,7 @@ class LogStore:
         classifications: list[Classification | None] = []
         cluster_ids: list[str | None] = []
         for record in records:
-            classification = engine.classify(record)
+            classification = engine.classify(record, settings.min_level)
             cluster_id = None
             if classification is not None and (
                 record.level.rank >= settings.min_level.rank or classification.any_level
@@ -157,27 +165,19 @@ class LogStore:
 
     def find(self, value: str, limit: int = 50) -> FindResult:
         """Records that carry an identifier, chronologically, plus identifiers seen with it."""
-        needle = value.strip()
-        key = needle.lower()
-        refs = list(self._index.get(key, []))
-        matched_by = "index"
-        if not refs and len(needle) >= 4:
-            refs = [ref for ref in self._iter_refs() if key in _haystack(self.record(ref))]
-            matched_by = "text"
+        key = value.strip().lower()
+        refs, matched_by = self._lookup(value)
         if not refs:
-            return FindResult([], 0, "none", suggestions=self.suggest(needle))
+            return FindResult([], 0, "none", suggestions=self.suggest(value))
         related: Counter[str] = Counter()
-        linked: set[int] = set()
-        direct = set(refs)
         for ref in refs:
             for identifier in identifiers_in(self.record(ref)):
                 other = identifier.value.lower()
-                if other == key:
+                if other == key or identifier.kind == "span":
                     continue
-                related[other] += 1
-                if identifier.kind in LINK_KINDS:
-                    linked.update(r for r in self._index.get(other, []) if r not in direct)
-        linked_refs = sorted(linked)
+                if len(self._index.get(other, ())) <= self._common:
+                    related[other] += 1
+        linked_refs = self._linked(refs)
         return FindResult(
             refs=refs[:limit],
             total=len(refs),
@@ -187,10 +187,103 @@ class LogStore:
             linked_total=len(linked_refs),
         )
 
+    def _lookup(self, value: str) -> tuple[list[int], str]:
+        needle = value.strip()
+        key = needle.lower()
+        refs = list(self._index.get(key, []))
+        if refs:
+            return refs, "index"
+        if len(needle) >= 4:
+            refs = [ref for ref in self._iter_refs() if key in _haystack(self.record(ref))]
+            if refs:
+                return refs, "text"
+        return [], "none"
+
+    def _linked(self, refs: list[int]) -> list[int]:
+        """Records that share a trace, correlation or request id with ``refs``."""
+        direct = set(refs)
+        linked: set[int] = set()
+        seen: set[str] = set()
+        for ref in refs:
+            for identifier in identifiers_in(self.record(ref)):
+                key = identifier.value.lower()
+                if identifier.kind not in LINK_KINDS or key in seen:
+                    continue
+                seen.add(key)
+                others = self._index.get(key, [])
+                if len(others) <= self._common:
+                    linked.update(r for r in others if r not in direct)
+        return sorted(linked)
+
+    def api_calls(
+        self,
+        identifier: str | None = None,
+        path: str | None = None,
+        min_status: int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> tuple[list[tuple[int, HttpCall]], str]:
+        """HTTP requests, optionally only those of one user, account, session or other id.
+
+        For an identifier, requests are the records that mention it plus those that share
+        a trace, correlation or request id with them, which is how an access log line that
+        only knows the path is tied to the user or account in the application log.
+        """
+        matched_by = "all"
+        if identifier:
+            refs, matched_by = self._lookup(identifier)
+            candidates = sorted({*refs, *self._linked(refs)})
+        else:
+            candidates = list(self._calls)
+        needle = path.lower() if path else None
+        selected: list[tuple[int, HttpCall]] = []
+        for ref in candidates:
+            call = self._calls.get(ref)
+            if call is None:
+                continue
+            stamp = self.record(ref).timestamp
+            if needle and needle not in call.path.lower():
+                continue
+            if min_status and call.status < min_status:
+                continue
+            if start and (stamp is None or stamp < start):
+                continue
+            if end and (stamp is None or stamp > end):
+                continue
+            selected.append((ref, call))
+        return self._dedupe(selected), matched_by
+
+    def _dedupe(self, calls: list[tuple[int, HttpCall]]) -> list[tuple[int, HttpCall]]:
+        """Drop application-log mentions of a request that its access log line already covers."""
+        logged = {
+            (self._trace(ref), call.method, call.path) for ref, call in calls if call.access_log
+        }
+        return [
+            (ref, call)
+            for ref, call in calls
+            if call.access_log
+            or self._trace(ref) is None
+            or (self._trace(ref), call.method, call.path) not in logged
+        ]
+
+    def _trace(self, ref: int) -> str | None:
+        context = self.record(ref).context
+        return next((v for k, v in context.items() if "trace" in k.lower()), None)
+
+    def redact_question(self, text: str) -> str:
+        """Mask a question like the logs, so pasted emails and session ids map to their tokens."""
+        text = self.redactor.redact(text)
+        for word in set(re.findall(r"[A-Za-z0-9._-]{8,}", text)):
+            token = self.redactor.link_token("SESSION", word)
+            if token.lower() in self._index:
+                text = re.sub(rf"(?<![\w.-]){re.escape(word)}(?![\w.-])", token, text)
+        return text
+
     def suggest(self, value: str, limit: int = 5) -> list[str]:
         """Known identifiers that look like ``value``, for typos and partial ids."""
         key = value.strip().lower()
-        if not key:
+        if not key or _LINK_TOKEN.match(key):
+            # A token is a salted hash: one that is not in the index has no near misses.
             return []
         digits = re.sub(r"\D", "", key)
         candidates = [

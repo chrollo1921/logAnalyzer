@@ -46,6 +46,8 @@ ignore = ["S101"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PTH"]
 "tests/fixtures/make_fixtures.py" = ["S", "PTH", "E501"]
+# Seeded random data for the synthetic demo export, never used for security.
+"src/sapcx_log_analyzer/demo.py" = ["S311"]
 
 [tool.mypy]
 python_version = "3.12"

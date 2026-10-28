@@ -32,6 +32,8 @@ class RedactionPattern(BaseModel):
     # Replace the pattern's ``value`` group with a stable token such as ``<SESSION#1a2b3c4d>``
     # instead of ``replacement``, so redacted lines can still be linked to each other.
     link_label: str | None = None
+    # Substrings (any case) one of which must occur for the pattern to apply; a fast pre-check.
+    hints: list[str] = Field(default_factory=list)
 
 
 class Settings(BaseSettings):

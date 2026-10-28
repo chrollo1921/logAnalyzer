@@ -51,7 +51,7 @@ def prepare(
             start = record.timestamp if start is None else min(start, record.timestamp)
             end = record.timestamp if end is None else max(end, record.timestamp)
         record = redactor.redact_record(record)
-        classification = engine.classify(record)
+        classification = engine.classify(record, settings.min_level)
         if classification is None:
             continue
         if record.level.rank < settings.min_level.rank and not classification.any_level:

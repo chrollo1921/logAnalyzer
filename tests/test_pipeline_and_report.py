@@ -68,7 +68,7 @@ def test_analyze_with_provider(
     assert report.analysis is not None
     assert len(report.analysis.findings[0].cluster_ids) == len(report.clusters)
     prompt = fake_provider.calls[0]["prompt"]
-    assert "jane.doe" not in prompt and "<EMAIL>" in prompt
+    assert "jane.doe" not in prompt and "<EMAIL#" in prompt
 
 
 def test_analyze_without_provider(csv_export: Path, settings: Settings) -> None:

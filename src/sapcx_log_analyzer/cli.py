@@ -12,6 +12,7 @@ from sapcx_log_analyzer import __version__
 from sapcx_log_analyzer.ask.store import LogStore
 from sapcx_log_analyzer.classify import RuleEngine
 from sapcx_log_analyzer.config import Effort, Settings, load_settings
+from sapcx_log_analyzer.demo import write_demo_export
 from sapcx_log_analyzer.ingest import ExportFormat
 from sapcx_log_analyzer.ingest.dynatrace_json import ExportFormatError
 from sapcx_log_analyzer.llm import ChatProvider, LLMAnalyzer, LLMError, LLMProvider
@@ -319,6 +320,23 @@ def list_rules(
         raise typer.Exit(EXIT_INPUT_ERROR) from exc
     for rule in engine.rules:
         typer.echo(f"{rule.id:32} {rule.severity.value:8} {rule.component}")
+
+
+@app.command("demo-export")
+def demo_export(
+    output: Annotated[Path, typer.Argument(dir_okay=False, help="Where to write the export.")],
+    size_mb: Annotated[
+        float, typer.Option("--size-mb", min=0.05, max=500, help="Approximate file size.")
+    ] = 10.0,
+    seed: Annotated[int, typer.Option(help="Change it for different random traffic.")] = 7,
+) -> None:
+    """Write a synthetic SAP Commerce Cloud export with planted incidents, to try the tool."""
+    count = write_demo_export(output, size_mb=size_mb, seed=seed)
+    typer.echo(f"Wrote {count} records ({output.stat().st_size / 1_048_576:.1f} MB) to {output}")
+    typer.echo(
+        "Try: what happened with account 1234 and which APIs did they hit? / why did the "
+        "order fail for user 23dsfd? / why did /cart/323232/getDelivery fail?"
+    )
 
 
 def _effort(value: str | None) -> Effort | None:

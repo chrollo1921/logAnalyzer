@@ -79,7 +79,7 @@ def test_store_keeps_every_record_in_time_order(store: LogStore) -> None:
 def test_store_redacts_on_load(store: LogStore) -> None:
     text = "\n".join(format_record(store, r, full=True) for r in range(1, len(store) + 1))
     assert "jane.doe@example.com" not in text
-    assert "<EMAIL>" in text
+    assert "<EMAIL#" in text
     assert "8F3AC2D1E0B9A7F6" not in text
     assert "<SESSION#" in text
 

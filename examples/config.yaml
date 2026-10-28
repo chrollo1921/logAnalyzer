@@ -20,3 +20,6 @@ extra_redaction_patterns:
   - name: customer_number
     pattern: "\\bCUST-\\d{6,}\\b"
     replacement: "<CUSTOMER>"
+    # Optional: only try the pattern on lines that contain one of these strings (any case),
+    # which keeps loading large exports fast.
+    hints: ["cust-"]
