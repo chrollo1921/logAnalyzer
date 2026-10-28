@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from sapcx_log_analyzer import __version__, cli
-from sapcx_log_analyzer.config import Settings, load_settings
+from sapcx_log_analyzer import __version__, cli, config
+from sapcx_log_analyzer.config import Settings, load_env_file, load_settings
 from sapcx_log_analyzer.llm import LLMError
 from sapcx_log_analyzer.models import LogLevel
 from tests.conftest import FakeProvider, responder_for_all_clusters
@@ -96,6 +97,39 @@ def test_build_provider_returns_anthropic(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 # --- config -------------------------------------------------------------------------
+
+
+def test_env_file_fills_unset_variables_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("SAPCX_LA_MODEL=from-env-file\nSAPCX_LA_EFFORT=low\n")
+    monkeypatch.setenv("SAPCX_LA_EFFORT", "max")
+    monkeypatch.setenv("SAPCX_LA_MODEL", "placeholder")  # so teardown removes the loaded value
+    monkeypatch.delenv("SAPCX_LA_MODEL")
+    assert load_env_file(env) is True
+    settings = load_settings()
+    assert (settings.model, settings.effort) == ("from-env-file", "max")
+
+
+def test_env_file_default_is_optional(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert load_env_file() is False
+    with pytest.raises(FileNotFoundError):
+        load_env_file(tmp_path / "missing.env")
+
+
+def test_cli_reads_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "load_env_file", config.load_env_file)
+    env = tmp_path / "litellm.env"
+    env.write_text("LITELLM_BASE_URL=https://proxy.example.com\n")
+    monkeypatch.setenv("LITELLM_BASE_URL", "placeholder")
+    monkeypatch.delenv("LITELLM_BASE_URL")
+    result = runner.invoke(cli.app, ["--env-file", str(env), "rules"])
+    assert result.exit_code == 0
+    assert os.environ["LITELLM_BASE_URL"] == "https://proxy.example.com"
+    missing = runner.invoke(cli.app, ["--env-file", str(tmp_path / "nope.env"), "rules"])
+    assert missing.exit_code == cli.EXIT_INPUT_ERROR
 
 
 def test_settings_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -12,7 +12,7 @@ import typer
 from sapcx_log_analyzer import __version__
 from sapcx_log_analyzer.ask.store import LogStore
 from sapcx_log_analyzer.classify import RuleEngine
-from sapcx_log_analyzer.config import Effort, Settings, load_settings
+from sapcx_log_analyzer.config import Effort, Settings, load_env_file, load_settings
 from sapcx_log_analyzer.demo import write_demo_export
 from sapcx_log_analyzer.ingest import ExportFormat
 from sapcx_log_analyzer.ingest.dynatrace_json import ExportFormatError
@@ -23,6 +23,8 @@ from sapcx_log_analyzer.report import OutputFormat, render
 
 EXIT_INPUT_ERROR = 2
 EXIT_LLM_ERROR = 3
+
+_MODEL_HELP = "Claude model id, or the model name your LiteLLM proxy uses for it."
 
 app = typer.Typer(
     help="Triage SAP Commerce Cloud logs exported from Dynatrace.",
@@ -59,11 +61,25 @@ def main(
     version: Annotated[
         bool, typer.Option("--version", callback=_version, is_eager=True, help="Show version.")
     ] = False,
+    env_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--env-file",
+            envvar="SAPCX_LA_ENV_FILE",
+            dir_okay=False,
+            help="Read keys and settings from this file. Default: .env in the current folder.",
+        ),
+    ] = None,
 ) -> None:
     logging.basicConfig(
         level=logging.INFO if verbose else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    try:
+        load_env_file(env_file)
+    except OSError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
 
 
 @app.command()
@@ -90,7 +106,7 @@ def analyze(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Print exactly what would be sent to the model.")
     ] = False,
-    model: Annotated[str | None, typer.Option(help="Claude model id.")] = None,
+    model: Annotated[str | None, typer.Option(help=_MODEL_HELP)] = None,
     effort: Annotated[str | None, typer.Option(help="low, medium, high, xhigh or max.")] = None,
     min_level: Annotated[
         LogLevel | None, typer.Option("--min-level", help="Lowest level to analyse.")
@@ -145,7 +161,7 @@ InputFormatOpt = Annotated[
 ConfigOpt = Annotated[
     Path | None, typer.Option("--config", "-c", exists=True, dir_okay=False, help="YAML.")
 ]
-ModelOpt = Annotated[str | None, typer.Option(help="Claude model id.")]
+ModelOpt = Annotated[str | None, typer.Option(help=_MODEL_HELP)]
 EffortOpt = Annotated[
     str | None, typer.Option(help="low, medium, high, xhigh or max (default medium).")
 ]

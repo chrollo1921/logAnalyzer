@@ -1,7 +1,9 @@
 """Opt-in smoke test against the real Anthropic API.
 
-Run with ``SAPCX_LA_LIVE_TESTS=1 ANTHROPIC_API_KEY=... pytest -m live``. It sends the
-redacted clusters and log lines of the synthetic fixture exports, never real data.
+Run with ``SAPCX_LA_LIVE_TESTS=1 ANTHROPIC_API_KEY=... pytest -m live``. Credentials and
+the model can also come from ``.env``, for example ``LITELLM_API_KEY``, ``LITELLM_BASE_URL``
+and ``SAPCX_LA_MODEL`` for a LiteLLM proxy. It sends the redacted clusters and log lines of
+the synthetic fixture exports, never real data.
 """
 
 from __future__ import annotations
@@ -10,12 +12,14 @@ import os
 from pathlib import Path
 
 import pytest
+from dotenv import dotenv_values
 
 from sapcx_log_analyzer.ask import AskSession, LogStore
 from sapcx_log_analyzer.config import Settings
 from sapcx_log_analyzer.demo import write_demo_export
 from sapcx_log_analyzer.llm.anthropic_provider import AnthropicProvider
 from sapcx_log_analyzer.pipeline import analyze
+from tests.conftest import ORIGINAL_ENV
 
 pytestmark = [
     pytest.mark.live,
@@ -23,6 +27,27 @@ pytestmark = [
         os.environ.get("SAPCX_LA_LIVE_TESTS") != "1", reason="set SAPCX_LA_LIVE_TESTS=1 to run"
     ),
 ]
+
+# Only these are passed through to the live tests; the rest stay isolated.
+_PASSED_THROUGH = (
+    "LITELLM_API_KEY",
+    "LITELLM_BASE_URL",
+    "ANTHROPIC_BASE_URL",
+    "SAPCX_LA_MODEL",
+    "SAPCX_LA_USE_REFUSAL_FALLBACK",
+)
+
+
+@pytest.fixture(autouse=True)
+def _live_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use the developer's LiteLLM or Anthropic settings, from the shell or from .env."""
+    from_file = dotenv_values(".env") if Path(".env").is_file() else {}
+    for key in _PASSED_THROUGH:
+        value = ORIGINAL_ENV.get(key) or from_file.get(key)
+        if value:
+            monkeypatch.setenv(key, value)
+    if "ANTHROPIC_API_KEY" not in os.environ and from_file.get("ANTHROPIC_API_KEY"):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", str(from_file["ANTHROPIC_API_KEY"]))
 
 
 def test_real_model_analyses_fixture(csv_export: Path) -> None:

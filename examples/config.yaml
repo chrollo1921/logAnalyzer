@@ -1,8 +1,9 @@
 # Example settings file: sapcx-log-analyzer analyze export.csv --config examples/config.yaml
 # Environment variables (SAPCX_LA_<NAME>) override these values; CLI flags override both.
-# The Anthropic API key is never read from here: set ANTHROPIC_API_KEY or run `ant auth login`.
+# Keys are never read from here: put LITELLM_BASE_URL and LITELLM_API_KEY (or ANTHROPIC_API_KEY)
+# in the environment or a .env file. See .env.example.
 
-model: claude-opus-5-5
+model: claude-opus-5-5    # or the model name your LiteLLM proxy uses
 effort: high              # low | medium | high | xhigh | max
 max_output_tokens: 16000
 use_refusal_fallback: true
