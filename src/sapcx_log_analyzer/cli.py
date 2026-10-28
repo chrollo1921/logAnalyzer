@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from pathlib import Path
 from typing import Annotated
 
@@ -256,53 +257,114 @@ def _print_record(store: LogStore, ref_text: str) -> None:
 
 @app.command()
 def serve(
-    export_file: ExportArg,
+    export_file: Annotated[
+        Path | None,
+        typer.Argument(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Optional export to load at start, shared with everyone.",
+        ),
+    ] = None,
     host: Annotated[str, typer.Option(help="Address to listen on.")] = "127.0.0.1",
     port: Annotated[int, typer.Option(help="Port to listen on; 0 picks a free one.")] = 8765,
     allow_host: Annotated[
         list[str] | None,
         typer.Option(
             "--allow-host",
-            help="Extra Host header value to accept, e.g. myvm.internal:8765. Repeatable.",
+            help="Host name people type in the browser, e.g. logs.example.com. Repeatable.",
         ),
+    ] = None,
+    auth: Annotated[
+        str | None,
+        typer.Option(help="Sign-in: none, token (team access key) or header (company SSO)."),
     ] = None,
     input_format: InputFormatOpt = None,
     config: ConfigOpt = None,
     model: ModelOpt = None,
     effort: EffortOpt = None,
 ) -> None:
-    """Open a local web chat for asking questions about an export."""
-    from sapcx_log_analyzer.ask import AskSession
-    from sapcx_log_analyzer.ask.web import AskApp, create_server, is_loopback
+    """Run the web chat: upload exports in the browser and ask questions, several people at once."""
+    import uvicorn
 
-    settings, store = _load_store(export_file, config, input_format, model, effort)
+    from sapcx_log_analyzer.server import create_app, is_loopback
+
+    if auth is not None and auth not in ("none", "token", "header"):
+        raise typer.BadParameter("auth must be none, token or header")
+    try:
+        settings = load_settings(config, model=model, ask_effort=_effort(effort), server_auth=auth)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    problem = _server_problem(settings, host)
+    if problem:
+        typer.echo(f"Error: {problem}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR)
     try:
         provider = build_chat_provider(settings)
     except LLMError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_LLM_ERROR) from exc
-    web_app = AskApp(store, lambda: AskSession(store, provider, settings))
     try:
-        server = create_server(web_app, host, port)
+        if export_file is not None:
+            typer.echo(f"Loading {export_file.name} …", err=True)
+        web_app = create_app(
+            settings,
+            provider,
+            preload=export_file,
+            preload_format=input_format,
+            allowed_hosts=allow_host or [],
+        )
+    except (ExportFormatError, ValueError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    try:
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+        sock = socket.create_server((host, port), family=family)
     except OSError as exc:
         typer.echo(f"Error: cannot listen on {host}:{port}: {exc}", err=True)
         raise typer.Exit(EXIT_INPUT_ERROR) from exc
-    web_app.allowed_hosts.update(h.lower() for h in allow_host or [])
-    if not is_loopback(host):
+    logging.getLogger("sapcx_log_analyzer").setLevel(logging.INFO)  # sign-ins and uploads
+    if not is_loopback(host) and not (allow_host or settings.server_allowed_hosts):
         typer.secho(
-            "Warning: the chat has no login. Anyone who can reach this address can read these "
-            "logs and spend API credits.",
+            "Note: browsers can only use localhost until you add the server's name with "
+            "--allow-host or SAPCX_LA_SERVER_ALLOWED_HOSTS.",
             err=True,
             fg="yellow",
         )
-    shown = "localhost" if is_loopback(host) else host
-    typer.echo(f"Open http://{shown}:{server.server_address[1]}/  (Ctrl+C to stop)", err=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        typer.echo("", err=True)
-    finally:
-        server.server_close()
+    # Listening on every interface includes this machine, so localhost works.
+    shown = "localhost" if is_loopback(host) or host in ("0.0.0.0", "::") else host  # noqa: S104
+    sign_in = {"none": "no sign-in", "token": "team access key", "header": "company login"}
+    typer.echo(
+        f"Open http://{shown}:{sock.getsockname()[1]}/  ({sign_in[settings.server_auth]}; "
+        "Ctrl+C to stop)",
+        err=True,
+    )
+    server = uvicorn.Server(uvicorn.Config(web_app, log_level="info", proxy_headers=True))
+    server.run(sockets=[sock])
+
+
+def _server_problem(settings: Settings, host: str) -> str | None:
+    """Why the server must not start with these settings, if it must not."""
+    from sapcx_log_analyzer.server import is_loopback
+    from sapcx_log_analyzer.server.auth import MIN_TOKEN_LENGTH
+
+    if settings.server_auth == "none" and not is_loopback(host):
+        return (
+            f"without sign-in, anyone who can reach {host} could read the logs. Use --auth "
+            "token with SAPCX_LA_SERVER_ACCESS_TOKEN, or --auth header behind your company "
+            "login, or listen on 127.0.0.1."
+        )
+    token = settings.server_access_token
+    if settings.server_auth == "token" and (
+        token is None or len(token.get_secret_value()) < MIN_TOKEN_LENGTH
+    ):
+        return (
+            f"set SAPCX_LA_SERVER_ACCESS_TOKEN to a random key of at least {MIN_TOKEN_LENGTH} "
+            'characters, for example the output of: python -c "import secrets; '
+            'print(secrets.token_urlsafe(24))"'
+        )
+    return None
 
 
 @app.command("rules")

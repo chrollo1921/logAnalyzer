@@ -82,6 +82,7 @@ class LogStore:
         self._display: dict[str, Identifier] = {}
         self._groups: dict[tuple[Scope, str], list[int]] = defaultdict(list)
         self._calls: dict[int, HttpCall] = {}
+        self._overview: dict[str, object] | None = None
         # Values on more records than this (a tenant name, a shared IP) do not identify anything.
         self._common = max(100, len(records) // 20)
         for position, record in enumerate(records):
@@ -376,6 +377,12 @@ class LogStore:
         return [IssueSummary(c, counts[c.id]) for c in self.clusters if counts[c.id]]
 
     def overview(self) -> dict[str, object]:
+        # Every new conversation needs it, and the store never changes after loading.
+        if self._overview is None:
+            self._overview = self._compute_overview()
+        return dict(self._overview)
+
+    def _compute_overview(self) -> dict[str, object]:
         stamps = [r.timestamp for r in self._records if r.timestamp is not None]
         levels = Counter(r.level.value for r in self._records)
         kinds = Counter(identifier.kind for identifier in self._display.values())

@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask the logs</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e3e0;
+    --accent: #0b6bcb; --accent-soft: #e6f0fb; --error: #b42318; --warn: #a15c00; --ok: #1f7a3d;
+    --code: #f1f1ee; --user: #eef3ea;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --text: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --accent: #5aa5f0; --accent-soft: #1d2b3a; --error: #f97066; --warn: #fdb022; --ok: #4ade80;
+      --code: #26262b; --user: #1f2a1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5; }
+  [hidden] { display: none !important; }
+  header { padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap; min-height: 49px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; }
+  header .who { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .link { font: inherit; font-size: 13px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; }
+  main { display: grid; grid-template-columns: 270px minmax(0, 3fr) minmax(0, 2fr); height: calc(100vh - 49px); }
+  @media (max-width: 1100px) { main { grid-template-columns: 240px minmax(0, 1fr); } #evidence { grid-column: 1 / -1; border-top: 1px solid var(--line); min-height: 40vh; } main { height: auto; } #chat { min-height: 70vh; } }
+  @media (max-width: 700px) { main { grid-template-columns: minmax(0, 1fr); } #files { border-right: 0; border-bottom: 1px solid var(--line); } header .meta { order: 3; flex-basis: 100%; } }
+  #files { border-right: 1px solid var(--line); background: var(--panel); padding: 14px; overflow-y: auto; min-height: 0; }
+  #files h2, #evidence h2 { font-size: 14px; margin: 0 0 8px; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 14px; text-align: center; font-size: 13px;
+    color: var(--muted); cursor: pointer; margin-bottom: 14px; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { color: var(--accent); }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .file { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; cursor: pointer; background: var(--bg); }
+  .file.on { border-color: var(--accent); background: var(--accent-soft); }
+  .file .name { font-weight: 600; font-size: 14px; word-break: break-all; }
+  .file .sub { font-size: 12px; color: var(--muted); }
+  .file .sub.failed { color: var(--error); }
+  .file .actions { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; align-items: center; }
+  .file .actions label { display: flex; gap: 4px; align-items: center; color: var(--muted); cursor: pointer; }
+  .note { font-size: 12px; color: var(--muted); }
+  #chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  #log { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg { max-width: 860px; margin: 0 0 18px; }
+  .msg.user { background: var(--user); padding: 10px 14px; border-radius: 10px; width: fit-content; max-width: 90%; white-space: pre-wrap; }
+  .msg.bot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .msg.bot h3 { font-size: 15px; margin: 14px 0 6px; }
+  .msg.bot p { margin: 6px 0; }
+  .msg.bot ul, .msg.bot ol { margin: 6px 0; padding-left: 22px; }
+  .msg.error { color: var(--error); border-color: var(--error); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  code { background: var(--code); padding: 1px 4px; border-radius: 4px; }
+  pre { background: var(--code); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .steps { color: var(--muted); font-size: 13px; margin: 0 0 8px; padding: 0; list-style: none; }
+  .steps li::before { content: "› "; }
+  .steps li.err { color: var(--warn); }
+  button.ref { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 0 7px; font: inherit; font-size: 13px; cursor: pointer; }
+  form#ask { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+  textarea, input[type=text], input[type=password] { font: inherit; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  textarea { flex: 1; min-width: 0; resize: none; min-height: 42px; }
+  .primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  .secondary { font: inherit; padding: 8px 12px; border-radius: 8px; background: transparent; color: var(--muted); border: 1px solid var(--line); cursor: pointer; }
+  button:disabled, textarea:disabled { opacity: .5; cursor: default; }
+  .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .examples button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); border-radius: 999px; padding: 4px 10px; cursor: pointer; text-align: left; }
+  #evidence { overflow-y: auto; padding: 16px 20px; background: var(--panel); min-height: 0; }
+  .hint { color: var(--muted); font-size: 14px; }
+  .rec { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-word; border-left: 3px solid var(--line); padding: 4px 8px; margin: 4px 0; }
+  .rec.ERROR, .rec.FATAL { border-left-color: var(--error); }
+  .rec.WARN { border-left-color: var(--warn); }
+  .rec.anchor { background: var(--accent-soft); }
+  .scope { display: flex; gap: 6px; margin: 10px 0 6px; font-size: 13px; color: var(--muted); align-items: center; }
+  .scope button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--text);
+    border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+  .scope button.on { border-color: var(--accent); color: var(--accent); }
+  .thinking { color: var(--muted); font-style: italic; }
+  #signin { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; padding: 16px; z-index: 10; }
+  #signin form { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px;
+    width: min(380px, 100%); display: flex; flex-direction: column; gap: 10px; }
+  #signin h2 { margin: 0 0 4px; font-size: 18px; }
+  #signin label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  #signin .error { color: var(--error); font-size: 13px; min-height: 1em; margin: 0; }
+</style>
+</head>
+<body>
+<div id="signin" hidden>
+  <form id="signin-form">
+    <h2>Ask the logs</h2>
+    <p class="hint" style="margin:0">Sign in with the access key your team was given.</p>
+    <label>Your name <input type="text" id="signin-name" maxlength="60" autocomplete="name" required></label>
+    <label>Access key <input type="password" id="signin-token" autocomplete="current-password" required></label>
+    <p class="error" id="signin-error"></p>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</div>
+<header>
+  <h1>Ask the logs</h1>
+  <span class="meta" id="meta">Upload a Dynatrace export to start.</span>
+  <span class="who" id="who" hidden><span id="who-name"></span><button class="link" type="button" id="signout">Sign out</button></span>
+</header>
+<main>
+  <aside id="files">
+    <div class="drop" id="drop" role="button" tabindex="0">
+      <strong>Upload an export</strong><br>or drop it here<br>
+      <span id="drop-limits">JSON, NDJSON or CSV from Dynatrace</span>
+      <div class="bar" id="upload-bar" hidden><span></span></div>
+      <div class="note" id="upload-status"></div>
+    </div>
+    <input type="file" id="file-input" accept=".json,.ndjson,.jsonl,.csv,application/json,text/csv" hidden>
+    <h2>Files</h2>
+    <div id="file-list"><p class="note">No files yet.</p></div>
+    <p class="note" id="files-note">Your files are visible only to you unless you share them.</p>
+  </aside>
+  <section id="chat">
+    <div id="log" aria-live="polite"></div>
+    <form id="ask">
+      <textarea id="question" rows="2" placeholder="Choose a file first" aria-label="Question" disabled></textarea>
+      <button class="primary" type="submit" id="send" disabled>Ask</button>
+      <button class="secondary" type="button" id="reset" title="Start a new conversation about this file" disabled>New</button>
+    </form>
+  </section>
+  <aside id="evidence">
+    <h2>Evidence</h2>
+    <p class="hint">Log lines you open from an answer appear here.</p>
+  </aside>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), input = $("question"), send = $("send"), reset = $("reset"), evidence = $("evidence");
+  const EMPTY_EVIDENCE = '<h2>Evidence</h2><p class="hint">Log lines you open from an answer appear here.</p>';
+  let config = {auth: "none", max_upload_mb: 100, idle_hours: 8};
+  let uploads = [];
+  let current = null;            // selected upload id
+  const chats = new Map();       // upload id -> {conversation, el, busy}
+  let pollTimer = null;
+
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  const size = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+
+  async function api(path, method = "GET", body) {
+    const init = {method, headers: {"X-Requested-With": "sapcx-log-analyzer"}};
+    if (body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+    const res = await fetch(path, init);
+    if (res.status === 401) { showSignIn(); throw new Error("Please sign in."); }
+    return res;
+  }
+  async function errorOf(res) {
+    const data = await res.json().catch(() => ({}));
+    if (Array.isArray(data.detail)) return data.detail.map((d) => d.msg).join("; ");
+    return data.detail || res.statusText;
+  }
+
+  // --- sign-in -----------------------------------------------------------------------
+
+  function showSignIn() {
+    if (config.auth === "token") { $("signin").hidden = false; $("signin-name").focus(); }
+  }
+  $("signin-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await fetch("/api/session", {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "sapcx-log-analyzer"},
+      body: JSON.stringify({name: $("signin-name").value, token: $("signin-token").value})});
+    if (!res.ok) { $("signin-error").textContent = await errorOf(res); return; }
+    $("signin").hidden = true; $("signin-token").value = ""; $("signin-error").textContent = "";
+    await start();
+  });
+  $("signout").addEventListener("click", async () => {
+    await api("/api/logout", "POST").catch(() => {});
+    location.reload();
+  });
+
+  async function start() {
+    let res = await fetch("/api/me");
+    if (res.status === 401 && config.auth === "none") {
+      await fetch("/api/session", {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "sapcx-log-analyzer"}, body: "{}"});
+      res = await fetch("/api/me");
+    }
+    if (res.status === 401) { showSignIn(); if (config.auth === "header") $("meta").textContent = "Sign in through your company login, then reload this page."; return; }
+    const me = await res.json();
+    $("who-name").textContent = me.name;
+    $("who").hidden = config.auth === "none";
+    $("signout").hidden = config.auth === "header";
+    await refresh();
+    setInterval(() => refresh().catch(() => {}), 30000);  // files teammates share
+  }
+
+  // --- files -------------------------------------------------------------------------
+
+  async function refresh() {
+    const res = await api("/api/uploads");
+    uploads = (await res.json()).uploads;
+    renderFiles();
+    clearTimeout(pollTimer);
+    if (uploads.some((u) => u.status === "processing")) pollTimer = setTimeout(() => refresh().catch(() => {}), 1500);
+    if (!current || !uploads.some((u) => u.id === current)) {
+      const ready = uploads.find((u) => u.status === "ready");
+      if (ready) select(ready.id); else if (current) { current = null; showChat(); }
+    } else showChat();
+  }
+
+  function renderFiles() {
+    const list = $("file-list");
+    if (!uploads.length) { list.innerHTML = '<p class="note">No files yet.</p>'; return; }
+    list.innerHTML = "";
+    for (const u of uploads) {
+      const div = document.createElement("div");
+      div.className = "file" + (u.id === current ? " on" : "");
+      div.dataset.id = u.id;
+      let sub;
+      if (u.status === "processing") sub = `Processing ${size(u.size)}…`;
+      else if (u.status === "failed") sub = esc(u.error || "Could not be read");
+      else sub = `${u.overview.records.toLocaleString()} records · ${size(u.size)}`;
+      const who = u.mine ? (u.shared ? "Shared with everyone" : "Only you") : `Shared by ${esc(u.owner)}`;
+      div.innerHTML = `<div class="name">${esc(u.filename)}</div><div class="sub${u.status === "failed" ? " failed" : ""}">${sub}</div><div class="sub">${who}</div>` +
+        (u.mine ? `<div class="actions"><label><input type="checkbox" data-share ${u.shared ? "checked" : ""}> Share</label><button class="link" type="button" data-remove>Remove</button></div>` : "");
+      div.addEventListener("click", (e) => {
+        if (e.target.closest("[data-share]")) { share(u.id, e.target.checked); return; }
+        if (e.target.closest("[data-remove]")) { removeFile(u); return; }
+        if (e.target.closest("label")) return;
+        if (u.status === "ready") select(u.id);
+      });
+      list.appendChild(div);
+    }
+  }
+
+  async function share(id, shared) {
+    const res = await api(`/api/uploads/${id}`, "PATCH", {shared});
+    if (!res.ok) alert(await errorOf(res));
+    await refresh();
+  }
+  async function removeFile(u) {
+    if (!confirm(`Remove ${u.filename}? Conversations about it are lost.`)) return;
+    const res = await api(`/api/uploads/${u.id}`, "DELETE");
+    if (!res.ok) alert(await errorOf(res));
+    chats.get(u.id)?.el.remove(); chats.delete(u.id);
+    if (current === u.id) current = null;
+    await refresh();
+  }
+
+  function upload(file) {
+    const status = $("upload-status"), bar = $("upload-bar"), fill = bar.querySelector("span");
+    if (file.size > config.max_upload_mb * 1048576) { status.textContent = `${file.name} is larger than ${config.max_upload_mb} MB.`; return; }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads?name=" + encodeURIComponent(file.name));
+    xhr.setRequestHeader("X-Requested-With", "sapcx-log-analyzer");
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) fill.style.width = (100 * e.loaded / e.total) + "%"; };
+    xhr.onload = async () => {
+      bar.hidden = true;
+      if (xhr.status === 401) { showSignIn(); return; }
+      if (xhr.status !== 202) {
+        let msg = xhr.statusText;
+        try { const d = JSON.parse(xhr.responseText).detail; msg = Array.isArray(d) ? d.map((x) => x.msg).join("; ") : d; } catch (_) {}
+        status.textContent = msg; return;
+      }
+      status.textContent = "";
+      const u = JSON.parse(xhr.responseText);
+      current = u.id;
+      await refresh();
+    };
+    xhr.onerror = () => { bar.hidden = true; status.textContent = "The upload failed; check the connection."; };
+    fill.style.width = "0"; bar.hidden = false; status.textContent = `Uploading ${file.name}…`;
+    xhr.send(file);
+  }
+
+  const drop = $("drop"), picker = $("file-input");
+  drop.addEventListener("click", () => picker.click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
+  picker.addEventListener("change", () => { if (picker.files[0]) upload(picker.files[0]); picker.value = ""; });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+
+  // --- chat --------------------------------------------------------------------------
+
+  function chatFor(u) {
+    let chat = chats.get(u.id);
+    if (chat) return chat;
+    const el = document.createElement("div");
+    const o = u.overview;
+    el.innerHTML = `<div class="msg bot"><p>Ask about a transaction, user, B2B account, session, order or API in <strong>${esc(u.filename)}</strong>.</p>` +
+      `<p class="hint" style="font-size:13px">Personal data and secrets are redacted before anything is sent to Claude. Click a <button class="ref" type="button" disabled>#ref</button> to see the log line and what happened around it.</p><div class="examples"></div></div>`;
+    const box = el.querySelector(".examples");
+    const questions = (o.examples || []).slice(0, 2).map((id) => `What went wrong with ${id}?`);
+    questions.push("Which API calls failed most often, and why?", "Which problems affected the most requests?");
+    for (const q of questions) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = q;
+      b.addEventListener("click", () => ask(q));
+      box.appendChild(b);
+    }
+    chat = {conversation: null, el, busy: false};
+    chats.set(u.id, chat);
+    return chat;
+  }
+
+  function select(id) {
+    if (current !== id) evidence.innerHTML = EMPTY_EVIDENCE;
+    current = id;
+    renderFiles();
+    showChat();
+    input.focus();
+  }
+
+  function showChat() {
+    const u = uploads.find((x) => x.id === current);
+    log.replaceChildren();
+    if (!u || u.status !== "ready") {
+      $("meta").textContent = u ? `${u.filename} · processing…` : "Upload a Dynatrace export to start.";
+      log.innerHTML = `<div class="msg bot"><p>Upload a Dynatrace log export (JSON, NDJSON or CSV, up to ${config.max_upload_mb} MB) on the left, then ask questions about it here.</p>` +
+        `<p class="hint" style="font-size:13px">For example: <em>What happened with account 1234 and which APIs did they hit?</em> or <em>Why did the order fail for user 23dsfd?</em></p></div>`;
+      input.disabled = send.disabled = reset.disabled = true;
+      input.placeholder = "Choose a file first";
+      return;
+    }
+    const o = u.overview;
+    const range = o.time_range_start ? `${o.time_range_start.replace("T", " ").slice(0, 19)} to ${o.time_range_end.replace("T", " ").slice(0, 19)} UTC` : "no timestamps";
+    $("meta").textContent = `${u.filename} · ${o.records.toLocaleString()} records · ${range} · ${o.known_issue_clusters} known issue patterns`;
+    const chat = chatFor(u);
+    log.appendChild(chat.el);
+    log.scrollTop = log.scrollHeight;
+    input.disabled = reset.disabled = false;
+    send.disabled = chat.busy;
+    input.placeholder = "What went wrong with transaction tx-243232?";
+  }
+
+  function inline(text) {
+    return text
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^\w&*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[^\w&])#(\d{1,9})\b/g, '$1<button class="ref" type="button" data-ref="$2">#$2</button>');
+  }
+
+  function markdown(src) {
+    const lines = esc(src).split("\n");
+    const out = [];
+    let list = null, para = [], code = null;
+    const flushPara = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+    const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map((i) => "<li>" + inline(i) + "</li>").join("") + `</${list.tag}>`); list = null; } };
+    for (const line of lines) {
+      if (code !== null) {
+        if (/^```/.test(line)) { out.push("<pre><code>" + code.join("\n") + "</code></pre>"); code = null; }
+        else code.push(line);
+        continue;
+      }
+      if (/^```/.test(line)) { flushPara(); flushList(); code = []; continue; }
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) { flushPara(); flushList(); out.push(`<h3>${inline(h[2])}</h3>`); continue; }
+      const ul = line.match(/^\s*[-*]\s+(.*)$/);
+      const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (ul || ol) {
+        flushPara();
+        const tag = ul ? "ul" : "ol";
+        if (!list || list.tag !== tag) { flushList(); list = {tag, items: []}; }
+        list.items.push((ul || ol)[1]);
+        continue;
+      }
+      if (!line.trim()) { flushPara(); flushList(); continue; }
+      if (list && /^\s{2,}/.test(line)) { list.items[list.items.length - 1] += " " + line.trim(); continue; }
+      flushList();
+      para.push(line.trim());
+    }
+    if (code !== null) out.push("<pre><code>" + code.join("\n") + "</code></pre>");
+    flushPara(); flushList();
+    return out.join("");
+  }
+
+  function addMessage(chat, cls, html) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = html;
+    chat.el.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  async function ask(question) {
+    const id = current, u = uploads.find((x) => x.id === id);
+    if (!u || u.status !== "ready" || !question.trim()) return;
+    const chat = chatFor(u);
+    if (chat.busy) return;
+    chat.busy = true; send.disabled = true;
+    addMessage(chat, "user", esc(question));
+    const bot = addMessage(chat, "bot", '<ul class="steps"></ul><div class="body thinking">Investigating…</div>');
+    const steps = bot.querySelector(".steps"), body = bot.querySelector(".body");
+    try {
+      if (!chat.conversation) {
+        const res = await api(`/api/uploads/${id}/conversations`, "POST", {});
+        if (!res.ok) throw new Error(await errorOf(res));
+        chat.conversation = (await res.json()).id;
+      }
+      const res = await api(`/api/uploads/${id}/ask`, "POST", {conversation: chat.conversation, question});
+      if (res.status === 404) chat.conversation = null;
+      if (!res.ok || !res.body) throw new Error(await errorOf(res));
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "step") {
+            const li = document.createElement("li");
+            li.textContent = event.summary;
+            if (event.error) li.className = "err";
+            steps.appendChild(li);
+          } else if (event.type === "answer") {
+            body.className = "body";
+            body.innerHTML = markdown(event.text || "(no answer)");
+            if (!event.complete) body.insertAdjacentHTML("beforeend", '<p class="hint" style="color:var(--warn)">The investigation stopped at the lookup limit.</p>');
+          } else if (event.type === "error") {
+            bot.classList.add("error"); body.className = "body";
+            body.textContent = "Claude could not answer: " + event.message;
+          }
+          if (current === id) log.scrollTop = log.scrollHeight;
+        }
+      }
+    } catch (err) {
+      bot.classList.add("error"); body.className = "body";
+      body.textContent = "Request failed: " + err.message;
+    } finally {
+      chat.busy = false;
+      if (current === id) { send.disabled = false; input.focus(); }
+    }
+  }
+
+  async function showRecord(ref, scope = "thread") {
+    const id = current;
+    const res = await api(`/api/uploads/${id}/records/${ref}?scope=${scope}`);
+    if (!res.ok) { evidence.innerHTML = `<h2>Evidence</h2><p class="hint">Record #${esc(ref)} not found.</p>`; return; }
+    const data = await res.json();
+    const scopes = ["thread", "pod", "all"].map((s) => `<button type="button" data-scope="${s}" class="${s === scope ? "on" : ""}">${s}</button>`).join("");
+    evidence.innerHTML =
+      `<h2>Record #${data.ref}</h2><div class="rec ${esc(data.level)} anchor">${esc(data.text)}</div>` +
+      `<div class="scope">Within 60 s, same ${scopes}</div>` +
+      data.context.map((r) => {
+        const [first, ...rest] = r.text.split("\n");
+        return `<div class="rec ${esc(r.level)}${r.ref === data.ref ? " anchor" : ""}">${inline(esc(first))}${esc(rest.length ? "\n" + rest.join("\n") : "")}</div>`;
+      }).join("");
+    evidence.querySelectorAll(".scope button").forEach((b) => b.addEventListener("click", () => showRecord(data.ref, b.dataset.scope)));
+    evidence.scrollTop = 0;
+  }
+
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest("button.ref[data-ref]");
+    if (target) showRecord(Number(target.dataset.ref));
+  });
+  $("ask").addEventListener("submit", (e) => { e.preventDefault(); const q = input.value; input.value = ""; ask(q); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("ask").requestSubmit(); } });
+  reset.addEventListener("click", () => {
+    const chat = chats.get(current);
+    if (!chat || chat.busy) return;
+    chat.el.remove(); chats.delete(current);
+    evidence.innerHTML = EMPTY_EVIDENCE;
+    showChat();
+  });
+
+  fetch("/api/config").then((r) => r.json()).then((c) => {
+    config = c;
+    $("drop-limits").textContent = `JSON, NDJSON or CSV from Dynatrace, up to ${c.max_upload_mb} MB`;
+    $("files-note").textContent = `Your files are visible only to you unless you share them. Files unused for ${c.idle_hours} hours are removed.`;
+    return start();
+  }).catch(() => { $("meta").textContent = "Could not reach the server."; });
+})();
+</script>
+</body>
+</html>
