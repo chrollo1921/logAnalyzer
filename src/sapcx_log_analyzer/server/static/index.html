@@ -290,11 +290,13 @@
     if (chat) return chat;
     const el = document.createElement("div");
     const o = u.overview;
-    el.innerHTML = `<div class="msg bot"><p>Ask about a transaction, user, B2B account, session, order or API in <strong>${esc(u.filename)}</strong>.</p>` +
+    el.innerHTML = `<div class="msg bot"><p>Ask about the whole of <strong>${esc(u.filename)}</strong>, such as its main problems, error spikes or slow endpoints, or about one transaction, user, B2B account, session, order or API.</p>` +
       `<p class="hint" style="font-size:13px">Personal data and secrets are redacted before anything is sent to Claude. Click a <button class="ref" type="button" disabled>#ref</button> to see the log line and what happened around it.</p><div class="examples"></div></div>`;
     const box = el.querySelector(".examples");
-    const questions = (o.examples || []).slice(0, 2).map((id) => `What went wrong with ${id}?`);
-    questions.push("Which API calls failed most often, and why?", "Which problems affected the most requests?");
+    const questions = ["What were the main problems in this file?"];
+    if (o.candidate_incidents) questions.push("What happened just before the biggest error spike?");
+    questions.push("Is checkout slower at any point than usual?");
+    questions.push(...(o.examples || []).slice(0, 1).map((id) => `What went wrong with ${id}?`));
     for (const q of questions) {
       const b = document.createElement("button");
       b.type = "button"; b.textContent = q;
@@ -320,20 +322,21 @@
     if (!u || u.status !== "ready") {
       $("meta").textContent = u ? `${u.filename} · processing…` : "Upload a Dynatrace export to start.";
       log.innerHTML = `<div class="msg bot"><p>Upload a Dynatrace log export (JSON, NDJSON or CSV, up to ${config.max_upload_mb} MB) on the left, then ask questions about it here.</p>` +
-        `<p class="hint" style="font-size:13px">For example: <em>What happened with account 1234 and which APIs did they hit?</em> or <em>Why did the order fail for user 23dsfd?</em></p></div>`;
+        `<p class="hint" style="font-size:13px">For example: <em>What were the main problems today?</em>, <em>What happened with account 1234 and which APIs did they hit?</em> or <em>Why did the order fail for user 23dsfd?</em></p></div>`;
       input.disabled = send.disabled = reset.disabled = true;
       input.placeholder = "Choose a file first";
       return;
     }
     const o = u.overview;
     const range = o.time_range_start ? `${o.time_range_start.replace("T", " ").slice(0, 19)} to ${o.time_range_end.replace("T", " ").slice(0, 19)} UTC` : "no timestamps";
-    $("meta").textContent = `${u.filename} · ${o.records.toLocaleString()} records · ${range} · ${o.known_issue_clusters} known issue patterns`;
+    const incidents = o.candidate_incidents ? ` · ${o.candidate_incidents} likely incident${o.candidate_incidents === 1 ? "" : "s"}` : "";
+    $("meta").textContent = `${u.filename} · ${o.records.toLocaleString()} records · ${range} · ${o.known_issue_clusters} known issue patterns${incidents}`;
     const chat = chatFor(u);
     log.appendChild(chat.el);
     log.scrollTop = log.scrollHeight;
     input.disabled = reset.disabled = false;
     send.disabled = chat.busy;
-    input.placeholder = "What went wrong with transaction tx-243232?";
+    input.placeholder = "What were the main problems, or what went wrong with tx-243232?";
   }
 
   function inline(text) {

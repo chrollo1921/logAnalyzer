@@ -19,6 +19,8 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from sapcx_log_analyzer.ask.analysis import Analysis, alternatives
+from sapcx_log_analyzer.ask.digest import render_digest
 from sapcx_log_analyzer.ask.http import HttpCall, http_call
 from sapcx_log_analyzer.ask.identifiers import Identifier, identifiers_in
 from sapcx_log_analyzer.classify import RuleEngine
@@ -103,6 +105,9 @@ class LogStore:
             elif record.thread:
                 self._groups[(Scope.THREAD, f"\x00{record.thread}")].append(ref)
             self._groups[(Scope.ALL, "")].append(ref)
+        self._digest: str | None = None
+        # Patterns, time series and incidents; needs the indexes above.
+        self.analysis = Analysis(self)
 
     # --- loading ----------------------------------------------------------------------
 
@@ -158,6 +163,10 @@ class LogStore:
         if not 1 <= ref <= len(self._records):
             raise KeyError(f"No record #{ref}; valid refs are 1 to {len(self._records)}")
         return self._records[ref - 1]
+
+    def call_at(self, ref: int) -> HttpCall | None:
+        """The HTTP request a record describes, if it is an access log or request line."""
+        return self._calls.get(ref)
 
     def time_range(self) -> tuple[datetime, datetime] | None:
         """The first and last timestamp in the export, or None when no line has one."""
@@ -348,7 +357,7 @@ class LogStore:
         end: datetime | None = None,
         limit: int = 50,
     ) -> tuple[list[int], int]:
-        needle = text.lower() if text else None
+        terms = alternatives(text)
         refs = []
         for ref in self._iter_refs():
             record = self.record(ref)
@@ -362,7 +371,7 @@ class LogStore:
                 continue
             if end and (record.timestamp is None or record.timestamp > end):
                 continue
-            if needle and needle not in _haystack(record):
+            if terms and not any(term in _haystack(record) for term in terms):
                 continue
             refs.append(ref)
         return refs[:limit], len(refs)
@@ -406,10 +415,18 @@ class LogStore:
             "pods": sorted({r.pod for r in self._records if r.pod})[:30],
             "identifiers_by_kind": dict(kinds.most_common()),
             "known_issue_clusters": len(self.clusters),
+            "message_patterns": len(self.analysis.patterns),
+            "candidate_incidents": len(self.analysis.incidents),
             "issues_by_severity": dict(
                 Counter(c.severity.value for c in self.clusters).most_common()
             ),
         }
+
+    def digest(self) -> str:
+        """The export profile as text for the system prompt, computed once."""
+        if self._digest is None:
+            self._digest = render_digest(self)
+        return self._digest
 
     def sample_identifiers(
         self, kinds: Iterable[str] = ("transaction", "order", "trace")

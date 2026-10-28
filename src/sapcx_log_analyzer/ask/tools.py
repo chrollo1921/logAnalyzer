@@ -10,38 +10,44 @@ from __future__ import annotations
 import json
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import Field, ValidationError
 
+from sapcx_log_analyzer.ask.analysis_tools import (
+    ANALYSIS_HANDLERS,
+    ANALYSIS_TOOL_DEFINITIONS,
+    describe_analysis_call,
+)
 from sapcx_log_analyzer.ask.http import HttpCall
 from sapcx_log_analyzer.ask.store import LogStore, Scope
+from sapcx_log_analyzer.ask.tooling import (
+    LEVELS_SCHEMA,
+    TIME_SCHEMA,
+    Level,
+    TimeWindowInput,
+    ToolInput,
+    ToolInputError,
+    clip,
+    coverage,
+    object_schema,
+    parse_time,
+    window_note,
+)
 from sapcx_log_analyzer.models import LogLevel, LogRecord
-from sapcx_log_analyzer.parse.log4j_pattern import parse_timestamp
 from sapcx_log_analyzer.parse.stacktrace import frames
 
-Level = Literal["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
+__all__ = ["TOOL_DEFINITIONS", "ToolInputError", "describe_call", "format_record", "run_tool"]
 
-_MESSAGE_CHARS = 400
-_NOT_HEADER = ("at ", "...")
 _FRAMEWORK_PREFIXES = ("java.", "javax.", "jakarta.", "jdk.", "sun.", "org.springframework.")
 
 
-class ToolInputError(ValueError):
-    """The model called a tool with input it cannot run with."""
-
-
-class _Input(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class FindIdentifierInput(_Input):
+class FindIdentifierInput(ToolInput):
     value: str = Field(min_length=1, max_length=200)
     limit: int = Field(default=60, ge=1, le=200)
 
 
-class GetContextInput(_Input):
+class GetContextInput(ToolInput):
     record: int = Field(ge=1)
     window_seconds: float = Field(default=30, gt=0, le=3600)
     scope: Scope = Scope.THREAD
@@ -49,48 +55,33 @@ class GetContextInput(_Input):
     limit: int = Field(default=40, ge=1, le=150)
 
 
-class GetRecordInput(_Input):
+class GetRecordInput(ToolInput):
     record: int = Field(ge=1)
 
 
-class ListIssuesInput(_Input):
-    start: str | None = None
-    end: str | None = None
-
-    @field_validator("start", "end")
-    @classmethod
-    def _iso(cls, value: str | None) -> str | None:
-        if value is not None and parse_timestamp(value) is None:
-            raise ValueError("must be an ISO-8601 timestamp such as 2026-10-20T09:15:00Z")
-        return value
+class ListIssuesInput(TimeWindowInput):
+    pass
 
 
-class ListApiCallsInput(ListIssuesInput):
+class ListApiCallsInput(TimeWindowInput):
     identifier: str | None = Field(default=None, max_length=200)
     path: str | None = Field(default=None, max_length=300)
     min_status: int | None = Field(default=None, ge=100, le=599)
     limit: int = Field(default=60, ge=1, le=300)
 
 
-class SearchLogsInput(ListIssuesInput):
+class SearchLogsInput(TimeWindowInput):
     text: str | None = Field(default=None, max_length=200)
     min_level: Level = "TRACE"
     pod: str | None = None
     aspect: str | None = None
+    group_by_pattern: bool = False
     limit: int = Field(default=50, ge=1, le=200)
 
 
-def _object(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-
-_LEVELS = {"type": "string", "enum": [level.value for level in LogLevel]}
-_TIME = {"type": "string", "description": "ISO-8601 timestamp, e.g. 2026-10-20T09:15:00Z"}
+_object = object_schema
+_LEVELS = LEVELS_SCHEMA
+_TIME = TIME_SCHEMA
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -141,9 +132,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "search_logs",
         "description": (
-            "Search all records by case-insensitive text and filters (level, pod, aspect, time "
-            "window). Use it for exception names, loggers, endpoints or anything else that is "
-            "not an identifier."
+            "Search all records by case-insensitive text ('a|b' matches either) and filters "
+            "(level, pod, aspect, time window). Use it for exception names, loggers, endpoints "
+            "or anything else that is not an identifier. With group_by_pattern it returns the "
+            "matching message patterns with counts instead of individual lines, which suits "
+            "broad searches."
         ),
         "input_schema": _object(
             {
@@ -153,6 +146,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "aspect": {"type": "string", "description": "e.g. api, backgroundprocessing."},
                 "start": _TIME,
                 "end": _TIME,
+                "group_by_pattern": {"type": "boolean"},
                 "limit": {"type": "integer"},
             },
             [],
@@ -164,7 +158,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "List the known SAP Commerce problem patterns (connection pool exhaustion, Solr, "
             "OOM, CronJob failures and so on) detected by the rule catalogue, with how often "
             "each occurred in an optional time window. Use it to check whether a failing "
-            "transaction was a victim of a wider platform problem."
+            "transaction was a victim of a wider platform problem. For every kind of message, "
+            "not only known problems, use list_patterns."
         ),
         "input_schema": _object({"start": _TIME, "end": _TIME}, []),
     },
@@ -190,6 +185,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             [],
         ),
     },
+    *ANALYSIS_TOOL_DEFINITIONS,
 ]
 
 
@@ -212,7 +208,7 @@ def format_record(store: LogStore, ref: int, full: bool = False) -> str:
     if classification:
         parts.append(f"[issue={classification.rule_id}]")
     message = (
-        record.message if full else _clip(record.message.splitlines()[0] if record.message else "")
+        record.message if full else clip(record.message.splitlines()[0] if record.message else "")
     )
     lines = [" ".join(parts) + " | " + message]
     if record.context:
@@ -227,40 +223,7 @@ def _stack_summary(record: LogRecord) -> list[str]:
         line.strip() for line in record.stack if not line.lstrip().startswith(("at ", "..."))
     ]
     app = [f for f in frames(record.stack) if not f.startswith(_FRAMEWORK_PREFIXES)][:3]
-    return [_clip(h, 300) for h in headers[:4]] + [f"at {f}" for f in app]
-
-
-def _clip(text: str, limit: int = _MESSAGE_CHARS) -> str:
-    return text if len(text) <= limit else text[:limit] + " …"
-
-
-def _time(value: str | None) -> datetime | None:
-    return parse_timestamp(value) if value else None
-
-
-def _coverage(store: LogStore) -> str:
-    span = store.time_range()
-    if span is None:
-        return "This export has no timestamps."
-    first, last = (stamp.isoformat(timespec="seconds") for stamp in span)
-    return f"This export covers {first} to {last}."
-
-
-def _window_note(store: LogStore, start: datetime | None, end: datetime | None) -> str:
-    """Say when a time window reaches outside the export, so "nothing found" is not read
-    as "nothing happened"."""
-    span = store.time_range()
-    if span is None or (start is None and end is None):
-        return ""
-    first, last = span
-    if (start is not None and start > last) or (end is not None and end < first):
-        return (
-            f"\nThe requested time window is outside this export. {_coverage(store)} "
-            "These logs say nothing about that time."
-        )
-    if (start is not None and start < first) or (end is not None and end > last):
-        return f"\nPart of the requested time window is outside this export. {_coverage(store)}"
-    return ""
+    return [clip(h, 300) for h in headers[:4]] + [f"at {f}" for f in app]
 
 
 def _not_found(store: LogStore, value: str) -> str:
@@ -270,7 +233,7 @@ def _not_found(store: LogStore, value: str) -> str:
         if suggestions
         else " It may be from outside that time range, or not logged under this id."
     )
-    return f"No record mentions {value!r}. {_coverage(store)}{hint}"
+    return f"No record mentions {value!r}. {coverage(store)}{hint}"
 
 
 def _records_block(store: LogStore, refs: list[int]) -> str:
@@ -311,6 +274,12 @@ def _get_context(store: LogStore, args: GetContextInput) -> str:
 
 def _get_record(store: LogStore, args: GetRecordInput) -> str:
     text = format_record(store, args.record, full=True)
+    pattern = store.analysis.pattern_of(args.record)
+    if pattern.count > 1:
+        text += (
+            f"\nPattern {pattern.id}: {pattern.count} lines like this one between "
+            f"{pattern.first} and {pattern.last}."
+        )
     cluster = store.cluster_of(args.record)
     if cluster:
         text += (
@@ -322,7 +291,7 @@ def _get_record(store: LogStore, args: GetRecordInput) -> str:
 
 
 def _search_logs(store: LogStore, args: SearchLogsInput) -> str:
-    start, end = _time(args.start), _time(args.end)
+    start, end = parse_time(args.start), parse_time(args.end)
     refs, total = store.search(
         text=args.text,
         min_level=LogLevel(args.min_level),
@@ -330,18 +299,41 @@ def _search_logs(store: LogStore, args: SearchLogsInput) -> str:
         aspect=args.aspect,
         start=start,
         end=end,
-        limit=args.limit,
+        limit=len(store) if args.group_by_pattern else args.limit,
     )
-    note = _window_note(store, start, end)
+    note = window_note(store, start, end)
     if not refs:
         return "No records match." + note
+    if args.group_by_pattern:
+        return _grouped(store, refs, args.limit, note)
     return f"{total} record(s) match; showing {len(refs)}.{note}\n" + _records_block(store, refs)
 
 
+def _grouped(store: LogStore, refs: list[int], limit: int, note: str) -> str:
+    groups: dict[str, list[int]] = defaultdict(list)
+    for ref in refs:
+        groups[store.analysis.pattern_of(ref).id].append(ref)
+    ordered = sorted(groups.items(), key=lambda item: -len(item[1]))
+    lines = [
+        f"{len(refs)} record(s) match in {len(groups)} message pattern(s); showing "
+        f"{min(limit, len(ordered))}.{note}"
+    ]
+    for pattern_id, matched in ordered[:limit]:
+        pattern = store.analysis.pattern(pattern_id)
+        first, last = store.record(matched[0]).timestamp, store.record(matched[-1]).timestamp
+        lines.append(
+            f"- {pattern.id} {pattern.level.value} x{len(matched)} "
+            f"{store.analysis.clock(first)}-{store.analysis.clock(last)} "
+            f"{pattern.label(200)} e.g. #{matched[0]}"
+            + (f", #{matched[-1]}" if len(matched) > 1 else "")
+        )
+    return "\n".join(lines)
+
+
 def _list_issues(store: LogStore, args: ListIssuesInput) -> str:
-    start, end = _time(args.start), _time(args.end)
+    start, end = parse_time(args.start), parse_time(args.end)
     issues = store.issues(start, end)
-    note = _window_note(store, start, end)
+    note = window_note(store, start, end)
     if not issues:
         return "No known problem patterns in this window." + note
     lines = [note.strip()] if note else []
@@ -351,13 +343,13 @@ def _list_issues(store: LogStore, args: ListIssuesInput) -> str:
             f"- {c.severity.value} | {c.title} ({c.component}) rule={c.rule_id} "
             f"events_in_window={issue.count_in_window} total={c.count} "
             f"first={c.first_seen} last={c.last_seen} pods={len(c.pods)} "
-            f"aspects={','.join(c.aspects) or '-'}\n  template: {_clip(c.template, 250)}"
+            f"aspects={','.join(c.aspects) or '-'}\n  template: {clip(c.template, 250)}"
         )
     return "\n".join(lines)
 
 
 def _list_api_calls(store: LogStore, args: ListApiCallsInput) -> str:
-    start, end = _time(args.start), _time(args.end)
+    start, end = parse_time(args.start), parse_time(args.end)
     calls, matched_by = store.api_calls(
         identifier=args.identifier,
         path=args.path,
@@ -368,7 +360,7 @@ def _list_api_calls(store: LogStore, args: ListApiCallsInput) -> str:
     scope = f" for {args.identifier!r}" if args.identifier else ""
     if args.identifier and matched_by == "none":
         return _not_found(store, args.identifier)
-    note = _window_note(store, start, end)
+    note = window_note(store, start, end)
     if not calls:
         return f"No HTTP requests{scope} match." + note
     groups: dict[str, list[HttpCall]] = defaultdict(list)
@@ -394,13 +386,14 @@ def _list_api_calls(store: LogStore, args: ListApiCallsInput) -> str:
     return "\n".join(lines)
 
 
-_HANDLERS: dict[str, tuple[type[_Input], Callable[[LogStore, Any], str]]] = {
+_HANDLERS: dict[str, tuple[type[ToolInput], Callable[[LogStore, Any], str]]] = {
     "find_identifier": (FindIdentifierInput, _find_identifier),
     "get_context": (GetContextInput, _get_context),
     "get_record": (GetRecordInput, _get_record),
     "search_logs": (SearchLogsInput, _search_logs),
     "list_issues": (ListIssuesInput, _list_issues),
     "list_api_calls": (ListApiCallsInput, _list_api_calls),
+    **ANALYSIS_HANDLERS,
 }
 
 
@@ -446,4 +439,4 @@ def describe_call(name: str, raw_input: Any) -> str:
             if data.get("path"):
                 return f"Listing calls to {data['path']}"
             return "Listing API calls"
-    return f"Running {name}"
+    return describe_analysis_call(name, data) or f"Running {name}"

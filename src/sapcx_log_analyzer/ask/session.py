@@ -60,7 +60,11 @@ class AskSession:
         self._provider = provider
         self._settings = settings
         overview = json.dumps(store.overview(), indent=1, ensure_ascii=False)
-        self._system = [system_prompt(), f"<export_overview>\n{overview}\n</export_overview>"]
+        self._system = [
+            system_prompt(),
+            f"<export_overview>\n{overview}\n</export_overview>\n\n"
+            f"<export_profile>\n{store.digest()}\n</export_profile>",
+        ]
         self.messages: list[dict[str, Any]] = []
 
     @property

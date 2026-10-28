@@ -9,8 +9,12 @@ something to ask about:
 - user ``23dsfd`` cannot place an order because the payment provider times out,
 - ``GET /occ/v2/electronics/cart/323232/getDelivery`` fails because the carrier API times out,
 - B2B account ``1234`` has a user whose order needs approval and who hits a missing permission,
-- a database connection pool outage breaks random requests for a few minutes,
-- a Solr indexing CronJob fails and a long GC pause is logged.
+- a database connection pool outage breaks random requests for a few minutes; it starts
+  after a catalog synchronization CronJob begins and Hikari pool warnings and slow queries
+  rise, and a long GC pause and an unrelated Solr indexing failure happen just before it,
+- an ``api`` pod restarts,
+- payment calls are several times slower for 15 minutes after the payment provider
+  switches to a fallback region, without a single error.
 
 All names, ids, emails and addresses are invented. Use it to try the tool without real data.
 """
@@ -31,6 +35,9 @@ API_PODS = ["api-7d9f8c6b5-abcde", "api-7d9f8c6b5-fghij", "api-7d9f8c6b5-klmno"]
 BG_POD = "backgroundprocessing-5c6b7d8e9-pqrst"
 BO_POD = "backoffice-6f7a8b9c0-uvwxy"
 OUTAGE = (T0 + timedelta(minutes=50), T0 + timedelta(minutes=57))
+CATALOG_SYNC = (T0 + timedelta(minutes=44, seconds=30), T0 + timedelta(minutes=58, seconds=10))
+POD_RESTART = T0 + timedelta(minutes=75)
+SLOW_PSP = (T0 + timedelta(minutes=90), T0 + timedelta(minutes=105))
 
 CART_FACADE = "de.hybris.platform.commercefacades.order.impl.DefaultCartFacade"
 CHECKOUT_FACADE = "de.hybris.platform.commercefacades.order.impl.DefaultCheckoutFacade"
@@ -44,6 +51,11 @@ B2B_APPROVAL = "de.hybris.platform.b2b.process.approval.actions.B2BPermissionRes
 OAUTH_ENDPOINT = "de.hybris.platform.oauth2.controller.OAuth2TokenEndpoint"
 LOGIN_AUDIT = "com.example.occ.security.LoginAuditListener"
 INDEXER_EXCEPTION = "de.hybris.platform.solrfacetsearch.indexer.exceptions.IndexerException"
+CRONJOB = "de.hybris.platform.cronjob.jalo.CronJob"
+SYNC_JOB = "de.hybris.platform.catalog.jalo.synchronization.CatalogVersionSyncJob"
+HIKARI_POOL = "com.zaxxer.hikari.pool.HikariPool"
+FLEXIBLE_SEARCH = "de.hybris.platform.servicelayer.search.impl.DefaultFlexibleSearchService"
+PRODUCT_QUERY = "SELECT {pk} FROM {Product} WHERE {catalogVersion} = ?"
 
 HIKARI_ERROR = {
     "name": "org.springframework.jdbc.CannotGetJdbcConnectionException",
@@ -146,6 +158,8 @@ def _access_line(when: datetime, ip: str, method: str, path: str, status: int, m
 class _Generator:
     def __init__(self, seed: int) -> None:
         self.rng = random.Random(seed)
+        # A second generator for the platform events, so they do not change the traffic.
+        self.extra = random.Random(seed + 1000)
         self.out = _Writer(self.rng)
         self.customers = self._customers()
 
@@ -190,6 +204,7 @@ class _Generator:
         ms: int | None = None,
         failure: tuple[str, str, dict[str, Any] | None] | None = None,
         extra: list[tuple[str, str, str]] | None = None,
+        delay_ms: int = 0,
     ) -> datetime:
         """Write the app lines and the access log line of one request; return its end."""
         rng = self.rng
@@ -212,6 +227,7 @@ class _Generator:
         if in_outage:
             status, failure = 500, ("ERROR", "Could not handle request", HIKARI_ERROR)
         duration = ms if ms is not None else (30_000 if in_outage else rng.randint(15, 400))
+        duration += delay_ms
 
         t = when
         self.out.add(
@@ -339,6 +355,7 @@ class _Generator:
             CHECKOUT_FACADE,
             f"Adding payment details to cart {cart}",
             extra=[("INFO", PAYMENT_ACTION, f"PSP authorization approved for cart {cart}")],
+            delay_ms=self.extra.randint(2500, 6000) if SLOW_PSP[0] <= t <= SLOW_PSP[1] else 0,
         )
         t += timedelta(seconds=rng.randint(3, 20))
         order = f"{rng.randint(10000000, 99999999)}"
@@ -638,11 +655,92 @@ class _Generator:
                 ),
             )
 
+    def platform_events(self) -> None:
+        """What happened to the platform around the incidents: a catalog sync that loads the
+        database before the pool outage, a pod restart and a payment provider failover."""
+        rng = self.extra
+        job = "sync-electronicsProductCatalog-Staged-Online"
+        thread = f"{job}::de.hybris.platform.servicelayer.internal.jalo.ServicelayerJob"
+        start, end = CATALOG_SYNC
+        self._bg(start, "INFO", thread, CRONJOB, f"Starting CronJob {job}")
+        self._bg(
+            start + timedelta(seconds=4),
+            "INFO",
+            thread,
+            SYNC_JOB,
+            "Synchronizing 48210 items of electronicsProductCatalog:Staged to Online",
+        )
+        self._bg(end, "INFO", thread, CRONJOB, f"CronJob {job} finished with result SUCCESS")
+        t = start + timedelta(minutes=1, seconds=30)
+        waiting = 0
+        while t < OUTAGE[0]:
+            waiting += rng.randint(1, 4)
+            pod = rng.choice(API_PODS)
+            self.out.add(
+                t,
+                "WARN",
+                pod,
+                _app_line(
+                    t,
+                    "WARN",
+                    f"HikariPool-1 housekeeper{rng.randint(1, 3)}",
+                    HIKARI_POOL,
+                    f"HikariPool-1 - Pool stats (total=50, active=50, idle=0, waiting={waiting})",
+                ),
+            )
+            if rng.random() < 0.5:
+                self.out.add(
+                    t,
+                    "WARN",
+                    pod,
+                    _app_line(
+                        t,
+                        "WARN",
+                        f"hybrisHTTP{rng.randint(1, 64)}",
+                        FLEXIBLE_SEARCH,
+                        f"Slow query took {rng.randint(4000, 12000)} ms: {PRODUCT_QUERY} "
+                        "(waiting for a lock on table products)",
+                    ),
+                )
+            t += timedelta(seconds=rng.randint(10, 30))
+        pod = API_PODS[2]
+        for offset, logger, text in (
+            (
+                0,
+                "org.apache.coyote.http11.Http11NioProtocol",
+                'Pausing ProtocolHandler ["http-nio-9001"]',
+            ),
+            (2, "org.apache.catalina.core.StandardService", "Stopping service [Catalina]"),
+            (95, "org.apache.catalina.startup.Catalina", "Server startup in [88412] milliseconds"),
+        ):
+            when = POD_RESTART + timedelta(seconds=offset)
+            self.out.add(when, "INFO", pod, _app_line(when, "INFO", "main", logger, text))
+        for when, text in (
+            (
+                SLOW_PSP[0] - timedelta(seconds=20),
+                "PSP endpoint psp.example-pay.com is unhealthy, switched to fallback region "
+                "psp-eu2.example-pay.com",
+            ),
+            (
+                SLOW_PSP[1],
+                "PSP endpoint psp.example-pay.com is healthy again, switched back from fallback "
+                "region psp-eu2.example-pay.com",
+            ),
+        ):
+            for pod in API_PODS:
+                self.out.add(
+                    when, "INFO", pod, _app_line(when, "INFO", "psp-health", PAYMENT_ACTION, text)
+                )
+
+    def _bg(self, when: datetime, level: str, thread: str, logger: str, text: str) -> None:
+        self.out.add(when, level, BG_POD, _app_line(when, level, thread, logger, text))
+
     def generate(self, target_bytes: int) -> list[dict[str, Any]]:
         self.failed_payment(T0 + timedelta(minutes=31, seconds=12))
         self.failed_delivery(T0 + timedelta(minutes=44, seconds=5))
         self.b2b_account(T0 + timedelta(minutes=63, seconds=40))
         self.background()
+        self.platform_events()
         rng = self.rng
         while self.out.size < target_bytes:
             start = T0 + timedelta(seconds=rng.randint(0, 2 * 3600 - 600))

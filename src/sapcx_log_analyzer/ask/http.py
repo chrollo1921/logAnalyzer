@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cached_property
 
 from sapcx_log_analyzer.models import LogRecord
 
@@ -33,7 +34,7 @@ class HttpCall:
     duration_ms: int | None = None
     access_log: bool = False  # True for access log lines, the authoritative record of a call
 
-    @property
+    @cached_property
     def endpoint(self) -> str:
         """The path with ids replaced, e.g. ``/occ/v2/electronics/cart/{id}/getDelivery``."""
         return "/".join(

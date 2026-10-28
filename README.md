@@ -49,10 +49,10 @@ sapcx-log-analyzer rules
 Exit codes: `0` success, `2` unreadable or invalid input, `3` the LLM call failed (re-run with
 `--no-llm` for a rules-only report).
 
-## Asking questions about a transaction, user or API
+## Asking questions about the logs
 
-The report answers "what is broken overall". To ask about one transaction, user, B2B account,
-session or API call, load an export into a chat:
+The report answers "what is broken overall". To ask your own questions, about the export as a whole
+or about one transaction, user, B2B account, session or API call, load an export into a chat:
 
 ```bash
 # Chat in the terminal
@@ -67,6 +67,9 @@ sapcx-log-analyzer serve                      # then open http://localhost:8765/
 
 Questions it is built for:
 
+- What were the main problems in this file? What happened just before the outage?
+- Is checkout slower than usual at any point? Which endpoints fail most, and why?
+- Is there anything about Solr, payments or the catalog sync?
 - What went wrong with transaction tx-243232? Why did order 00012345 fail?
 - What happened with account id 1234, and which APIs did they hit?
 - Why did the order fail for user 23dsfd (or for jane.doe@example.com)?
@@ -75,7 +78,9 @@ Questions it is built for:
 
 No export at hand? Generate a realistic, entirely synthetic one with planted incidents (a payment
 timeout for user `23dsfd`, a carrier timeout on `/cart/323232/getDelivery`, a missing permission and
-an order approval for B2B account `1234`, a database pool outage, a failed Solr CronJob):
+an order approval for B2B account `1234`, a database pool outage that follows a catalog sync and
+rising pool warnings, a failed Solr CronJob, a pod restart, and 15 minutes of slow payments after the
+payment provider fails over to another region):
 
 ```bash
 sapcx-log-analyzer demo-export demo.json --size-mb 10
@@ -100,6 +105,31 @@ it runs:
 - **known issues**: which rule-catalogue problems (pool exhaustion, Solr, OOM and so on) were active
   at that moment, so a victim can be told apart from the cause.
 
+For questions about the whole export, the file is profiled once when it loads, and Claude gets the
+profile with every conversation:
+
+- **message patterns**: lines with the same logger and message apart from ids and numbers are one
+  pattern (`P17`), so 15,000 lines become a few dozen to a few hundred patterns Claude can read as a
+  catalogue. Access log lines become one pattern per endpoint and status class.
+- **candidate incidents**: minutes in which errors, 5xx responses or p95 latency are far above the
+  file's own median (median plus four median absolute deviations, with minimum margins), with the
+  patterns that appeared or rose in the 15 minutes before each one, and the lifecycle events in
+  those minutes.
+- **latency shifts**: endpoints that were much slower than their own norm for a while, outside
+  outages, such as payment calls after a provider failover.
+- **lifecycle events**: deployments, pod restarts, CronJobs, catalog syncs, Solr indexing, cache
+  clears and integration failovers, recognized by `classify/rules/events.yaml`.
+- the main problem patterns, and the busiest, slowest and most failing endpoints.
+
+Claude then investigates with four more tools: a **timeline** of log lines, requests, 5xx responses
+or latency per time bucket, split by pattern, level, pod, endpoint or status; **compare windows**,
+which lists the patterns or endpoints that appeared, rose, fell or stopped in one window against
+another, for "what changed before the outage"; **endpoint stats** with p50, p95 and p99 latency and
+error rates, optionally against a baseline window, for "is checkout slower than usual"; and the
+**pattern catalogue**, filtered by level, text, logger, aspect or time. Search can also group its
+matches by pattern. Every number comes from code; Claude chooses what to look at, explains it and
+cites lines. "Usual" can only mean another period of the same export, and the answer says which.
+
 The answer gives a short verdict, a timeline citing log lines as `#ref`, the root cause, next steps
 and a confidence level. When the question is about an id, user or time the export does not cover,
 the answer says so first and gives the export's time range instead of answering from a similar id
@@ -118,10 +148,10 @@ still be followed without exposing them. Your question is masked the same way, s
 
 ### Large exports
 
-A 10 MB export (about 15,000 lines) loads in about 2 seconds and uses under 100 MB of memory; each
-lookup then takes milliseconds. The file is never sent to Claude as a whole (10 MB of logs would be
+A 10 MB export (about 15,000 lines) loads and is profiled in about 2 seconds and uses under 100 MB
+of memory; each lookup then takes milliseconds. A 100 MB export takes about 25 seconds and 600 MB. The file is never sent to Claude as a whole (10 MB of logs would be
 about 2.5 million tokens, far more than a model can read, and expensive). Claude sees an overview
-of the export and only the lines its lookups return, each lookup capped at
+and profile of the export (about 2,000 tokens) and only the lines its lookups return, each lookup capped at
 `ask_max_tool_result_chars`, so a typical question costs a few tens of thousands of tokens whatever
 the file size. Exports of 100 MB and more work the same way but take longer to load; narrow the
 Dynatrace query to the incident window where you can.
@@ -280,7 +310,10 @@ pytest --cov
 ```
 
 Tests never call the real API: the LLM provider is an interface, and tests use a fake one. To run the
-opt-in smoke test against the real model, which sends only the synthetic fixture data:
+opt-in tests against the real model, which send only synthetic data: a smoke test of the report and
+the chat, and a check set of open questions about the demo export ("what were the main problems?",
+"what happened just before the outage?", "is checkout slower than usual?", an unrelated question)
+whose answers must name the planted causes. Run it when the prompt or the tools change:
 
 ```bash
 SAPCX_LA_LIVE_TESTS=1 ANTHROPIC_API_KEY=... pytest -m live
@@ -305,7 +338,8 @@ src/sapcx_log_analyzer/
   cluster/        Fingerprinting, aggregation, timeline
   llm/            Provider interface, Anthropic provider, prompts, map-reduce analyzer
   report/         Markdown, JSON and HTML rendering
-  ask/            Interactive questions: searchable store, identifiers, tools, chat loop
+  ask/            Interactive questions: searchable store, identifiers, export profile and
+                  digest, lookup and analysis tools, chat loop
   server/         Web chat: uploads, sign-in, per-user files and conversations, page
 ```
 
