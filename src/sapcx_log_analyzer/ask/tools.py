@@ -238,6 +238,41 @@ def _time(value: str | None) -> datetime | None:
     return parse_timestamp(value) if value else None
 
 
+def _coverage(store: LogStore) -> str:
+    span = store.time_range()
+    if span is None:
+        return "This export has no timestamps."
+    first, last = (stamp.isoformat(timespec="seconds") for stamp in span)
+    return f"This export covers {first} to {last}."
+
+
+def _window_note(store: LogStore, start: datetime | None, end: datetime | None) -> str:
+    """Say when a time window reaches outside the export, so "nothing found" is not read
+    as "nothing happened"."""
+    span = store.time_range()
+    if span is None or (start is None and end is None):
+        return ""
+    first, last = span
+    if (start is not None and start > last) or (end is not None and end < first):
+        return (
+            f"\nThe requested time window is outside this export. {_coverage(store)} "
+            "These logs say nothing about that time."
+        )
+    if (start is not None and start < first) or (end is not None and end > last):
+        return f"\nPart of the requested time window is outside this export. {_coverage(store)}"
+    return ""
+
+
+def _not_found(store: LogStore, value: str) -> str:
+    suggestions = store.suggest(value)
+    hint = (
+        f" Similar identifiers in this export, which are different ids: {', '.join(suggestions)}."
+        if suggestions
+        else " It may be from outside that time range, or not logged under this id."
+    )
+    return f"No record mentions {value!r}. {_coverage(store)}{hint}"
+
+
 def _records_block(store: LogStore, refs: list[int]) -> str:
     return "\n".join(format_record(store, ref) for ref in refs)
 
@@ -245,13 +280,7 @@ def _records_block(store: LogStore, refs: list[int]) -> str:
 def _find_identifier(store: LogStore, args: FindIdentifierInput) -> str:
     result = store.find(args.value, args.limit)
     if result.matched_by == "none":
-        hint = (
-            f" Similar identifiers in this export: {', '.join(result.suggestions)}."
-            if result.suggestions
-            else " No similar identifiers either; the transaction may be outside this export's "
-            "time range or the id may not be logged."
-        )
-        return f"No record mentions {args.value!r}.{hint}"
+        return _not_found(store, args.value)
     how = "as an identifier" if result.matched_by == "index" else "as text"
     lines = [
         f"{result.total} record(s) mention {args.value!r} ({how}); showing {len(result.refs)}."
@@ -293,25 +322,29 @@ def _get_record(store: LogStore, args: GetRecordInput) -> str:
 
 
 def _search_logs(store: LogStore, args: SearchLogsInput) -> str:
+    start, end = _time(args.start), _time(args.end)
     refs, total = store.search(
         text=args.text,
         min_level=LogLevel(args.min_level),
         pod=args.pod,
         aspect=args.aspect,
-        start=_time(args.start),
-        end=_time(args.end),
+        start=start,
+        end=end,
         limit=args.limit,
     )
+    note = _window_note(store, start, end)
     if not refs:
-        return "No records match."
-    return f"{total} record(s) match; showing {len(refs)}.\n" + _records_block(store, refs)
+        return "No records match." + note
+    return f"{total} record(s) match; showing {len(refs)}.{note}\n" + _records_block(store, refs)
 
 
 def _list_issues(store: LogStore, args: ListIssuesInput) -> str:
-    issues = store.issues(_time(args.start), _time(args.end))
+    start, end = _time(args.start), _time(args.end)
+    issues = store.issues(start, end)
+    note = _window_note(store, start, end)
     if not issues:
-        return "No known problem patterns in this window."
-    lines = []
+        return "No known problem patterns in this window." + note
+    lines = [note.strip()] if note else []
     for issue in issues[:25]:
         c = issue.cluster
         lines.append(
@@ -324,24 +357,24 @@ def _list_issues(store: LogStore, args: ListIssuesInput) -> str:
 
 
 def _list_api_calls(store: LogStore, args: ListApiCallsInput) -> str:
+    start, end = _time(args.start), _time(args.end)
     calls, matched_by = store.api_calls(
         identifier=args.identifier,
         path=args.path,
         min_status=args.min_status,
-        start=_time(args.start),
-        end=_time(args.end),
+        start=start,
+        end=end,
     )
     scope = f" for {args.identifier!r}" if args.identifier else ""
     if args.identifier and matched_by == "none":
-        hint = store.suggest(args.identifier)
-        similar = f" Similar identifiers: {', '.join(hint)}." if hint else ""
-        return f"No record mentions {args.identifier!r}.{similar}"
+        return _not_found(store, args.identifier)
+    note = _window_note(store, start, end)
     if not calls:
-        return f"No HTTP requests{scope} match."
+        return f"No HTTP requests{scope} match." + note
     groups: dict[str, list[HttpCall]] = defaultdict(list)
     for _, call in calls:
         groups[f"{call.method} {call.endpoint}"].append(call)
-    lines = [f"{len(calls)} request(s){scope}, {len(groups)} endpoint(s):"]
+    lines = [f"{len(calls)} request(s){scope}, {len(groups)} endpoint(s):{note}"]
     for endpoint, group in sorted(groups.items(), key=lambda item: -len(item[1])):
         statuses = Counter(c.status for c in group)
         timed = [c.duration_ms for c in group if c.duration_ms is not None]

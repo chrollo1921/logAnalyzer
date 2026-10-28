@@ -101,7 +101,10 @@ it runs:
   at that moment, so a victim can be told apart from the cause.
 
 The answer gives a short verdict, a timeline citing log lines as `#ref`, the root cause, next steps
-and a confidence level. Follow-up questions keep the context. In the terminal, `/record 42` prints a
+and a confidence level. When the question is about an id, user or time the export does not cover,
+the answer says so first and gives the export's time range instead of answering from a similar id
+or a different window; a question unrelated to the logs gets a one-line pointer back to what the
+chat can answer. Follow-up questions keep the context. In the terminal, `/record 42` prints a
 line locally, `/new` starts over and `/exit` quits. In the web chat, click a `#ref` to see the line
 and its surroundings.
 

@@ -163,7 +163,8 @@ def test_email_leads_to_the_user_id(store: LogStore) -> None:
 
 def test_api_calls_filters_and_misses(store: LogStore) -> None:
     unknown = tool(store, "list_api_calls", {"identifier": "<EMAIL#00000000>"})
-    assert unknown == "No record mentions '<EMAIL#00000000>'."
+    assert unknown.startswith("No record mentions '<EMAIL#00000000>'. This export covers ")
+    assert "Similar identifiers" not in unknown
     assert store.suggest("<SESSION#00000000>") == []
     none = tool(store, "list_api_calls", {"path": "/nothing/here"})
     assert none == "No HTTP requests match."
@@ -174,12 +175,20 @@ def test_api_calls_filters_and_misses(store: LogStore) -> None:
         "list_api_calls",
         {"start": "2026-10-20T08:00:00Z", "end": "2026-10-20T08:00:01Z"},
     )
-    assert early == "No HTTP requests match."
+    assert early.startswith("No HTTP requests match.\nThe requested time window is outside")
     assert describe_call("list_api_calls", {"identifier": "1234"}) == (
         "Listing the API calls of 1234"
     )
     assert describe_call("list_api_calls", {"path": "/x"}) == "Listing calls to /x"
     assert describe_call("list_api_calls", {}) == "Listing API calls"
+
+
+def test_suggestions_are_ids_of_about_the_same_length(store: LogStore) -> None:
+    # Trace ids that happen to contain "9999" are not near misses of a short id.
+    assert all(len(s) <= 9 for s in store.suggest("99zz99"))
+    assert "23dsfd" in store.suggest("23dsfe")
+    missing = tool(store, "list_api_calls", {"identifier": "99zz99"})
+    assert missing.startswith("No record mentions '99zz99'. This export covers ")
 
 
 def test_chat_over_the_demo_export(store: LogStore) -> None:

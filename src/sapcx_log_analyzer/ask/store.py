@@ -83,6 +83,8 @@ class LogStore:
         self._groups: dict[tuple[Scope, str], list[int]] = defaultdict(list)
         self._calls: dict[int, HttpCall] = {}
         self._overview: dict[str, object] | None = None
+        stamps = [r.timestamp for r in records if r.timestamp is not None]
+        self._range = (min(stamps), max(stamps)) if stamps else None
         # Values on more records than this (a tenant name, a shared IP) do not identify anything.
         self._common = max(100, len(records) // 20)
         for position, record in enumerate(records):
@@ -156,6 +158,10 @@ class LogStore:
         if not 1 <= ref <= len(self._records):
             raise KeyError(f"No record #{ref}; valid refs are 1 to {len(self._records)}")
         return self._records[ref - 1]
+
+    def time_range(self) -> tuple[datetime, datetime] | None:
+        """The first and last timestamp in the export, or None when no line has one."""
+        return self._range
 
     def classification(self, ref: int) -> Classification | None:
         return self._classifications[ref - 1]
@@ -287,13 +293,17 @@ class LogStore:
             # A token is a salted hash: one that is not in the index has no near misses.
             return []
         digits = re.sub(r"\D", "", key)
+        # Only ids of about the same length: "99zz99" is not a near miss of a trace id that
+        # happens to contain "9999".
+        slack = max(3, len(key) // 2)
+        index = [k for k in self._index if abs(len(k) - len(key)) <= slack]
         candidates = [
             k
-            for k in self._index
+            for k in index
             if (digits and len(digits) >= 3 and digits in k) or key in k or k in key
         ]
         if len(candidates) < limit:
-            candidates.extend(difflib.get_close_matches(key, list(self._index), n=limit))
+            candidates.extend(difflib.get_close_matches(key, index, n=limit))
         seen: list[str] = []
         for candidate in candidates:
             display = self._display[candidate].value
