@@ -33,6 +33,40 @@ def test_semicolon_csv(tmp_path: Path) -> None:
     assert [(e.level, e.content) for e in entries] == [("ERROR", "boom")]
 
 
+def test_csv_column_names_are_matched_loosely(tmp_path: Path) -> None:
+    path = tmp_path / "table.csv"
+    path.write_text(
+        "Timestamp,env,Log Level,Log message,k8s.container.name\n"
+        '2026-10-22T06:10:47.972Z,uat,ERROR,"[x] ""GET /cart"" 500",platform\n'
+    )
+    [entry] = read_export(path)
+    assert (entry.timestamp, entry.level, entry.content) == (
+        "2026-10-22T06:10:47.972Z",
+        "ERROR",
+        '[x] "GET /cart" 500',
+    )
+    assert entry.attributes == {"env": "uat", "k8s.container.name": "platform"}
+
+
+@pytest.mark.parametrize(
+    ("encoding", "delimiter"),
+    [("utf-16", "\t"), ("cp1252", ";"), ("utf-8-sig", "|")],
+)
+def test_csv_encodings_and_delimiters(tmp_path: Path, encoding: str, delimiter: str) -> None:
+    path = tmp_path / "export.csv"
+    rows = [["timestamp", "level", "message"], ["2026-10-20T09:00:00Z", "WARN", "Café löst"]]
+    path.write_bytes("\r\n".join(delimiter.join(r) for r in rows).encode(encoding))
+    [entry] = read_export(path)
+    assert (entry.level, entry.content) == ("WARN", "Café löst")
+
+
+def test_csv_without_message_column_names_the_columns(tmp_path: Path) -> None:
+    path = tmp_path / "products.csv"
+    path.write_text("id,name,price\n1,Shirt,9.99\n")
+    with pytest.raises(ExportFormatError, match=r'expected .*; found "id", "name", "price"'):
+        list(read_export(path))
+
+
 def test_grail_json_export(json_export: Path) -> None:
     entries = list(read_export(json_export))
     assert len(entries) == 6

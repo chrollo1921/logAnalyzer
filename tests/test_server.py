@@ -180,6 +180,12 @@ def test_upload_is_processed_in_the_background_and_then_deleted() -> None:
     [
         (b"{not json", "broken.json", "Could not read broken.json: Not valid JSON"),
         (b"[]", "empty.json", "no log records found"),
+        (
+            b"id,name,price\n1,Shirt,9.99\n",
+            "products.csv",
+            'no log message column (expected "content", "message" or "Log message"; '
+            'found "id", "name", "price")',
+        ),
     ],
 )
 def test_unreadable_upload_reports_why(data: bytes, name: str, error: str) -> None:
@@ -189,6 +195,18 @@ def test_unreadable_upload_reports_why(data: bytes, name: str, error: str) -> No
     assert file["status"] == "failed" and error in file["error"]
     blocked = c.post(f"/api/uploads/{file['id']}/conversations")
     assert blocked.status_code == 409 and error in blocked.json()["detail"]
+
+
+def test_csv_with_log_message_column_uploads() -> None:
+    # Column names as in a Dynatrace notebook table export the owner uploaded.
+    data = (
+        b"timestamp,env,blueprint,loglevel,Log message,k8s.container.name\n"
+        b'2026-10-22T06:10:47.972Z,uat,api,ERROR,"[x] ""GET /cart HTTP/1.1"" 500",platform\n'
+    )
+    c = client(make_app())
+    sign_in(c)
+    file = upload(c, data, "dummy-table-data-10MB.csv").json()
+    assert file["status"] == "ready", file
 
 
 def test_a_crash_while_loading_still_finishes_the_upload(monkeypatch: pytest.MonkeyPatch) -> None:
