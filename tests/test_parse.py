@@ -33,6 +33,18 @@ def test_pattern_line_with_timestamp_and_stack() -> None:
     assert parsed.stack == ["\tat a.b.C.d(C.java:1)"]
 
 
+def test_pattern_line_with_bracketed_timestamp_and_nested_thread() -> None:
+    parsed = parse_pattern_line(
+        "[2026-09-02T00:27:23,134] INFO  [TaskExecutor-master-273-ProcessTask [8807037666230]] "
+        "[ProcessengineTaskRunner] Timeout occured"
+    )
+    assert parsed is not None
+    assert parsed.timestamp == datetime(2026, 9, 2, 0, 27, 23, 134000, tzinfo=UTC)
+    assert parsed.thread == "TaskExecutor-master-273-ProcessTask [8807037666230]"
+    assert parsed.logger == "ProcessengineTaskRunner"
+    assert parsed.message == "Timeout occured"
+
+
 def test_pattern_line_rejects_free_text() -> None:
     assert parse_pattern_line("just some text") is None
 

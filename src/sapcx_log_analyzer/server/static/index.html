@@ -114,11 +114,11 @@
   <aside id="files">
     <div class="drop" id="drop" role="button" tabindex="0">
       <strong>Upload an export</strong><br>or drop it here<br>
-      <span id="drop-limits">JSON, NDJSON or CSV from Dynatrace</span>
+      <span id="drop-limits">Dynatrace JSON, NDJSON or CSV, or a hybris console log</span>
       <div class="bar" id="upload-bar" hidden><span></span></div>
       <div class="note" id="upload-status"></div>
     </div>
-    <input type="file" id="file-input" accept=".json,.ndjson,.jsonl,.csv,application/json,text/csv" hidden>
+    <input type="file" id="file-input" accept=".json,.ndjson,.jsonl,.csv,.log,.txt,.out,application/json,text/csv,text/plain" hidden>
     <h2>Files</h2>
     <div id="file-list"><p class="note">No files yet.</p></div>
     <p class="note" id="files-note">Your files are visible only to you unless you share them.</p>
@@ -321,7 +321,7 @@
     log.replaceChildren();
     if (!u || u.status !== "ready") {
       $("meta").textContent = u ? `${u.filename} · processing…` : "Upload a Dynatrace export to start.";
-      log.innerHTML = `<div class="msg bot"><p>Upload a Dynatrace log export (JSON, NDJSON or CSV, up to ${config.max_upload_mb} MB) on the left, then ask questions about it here.</p>` +
+      log.innerHTML = `<div class="msg bot"><p>Upload a Dynatrace log export (JSON, NDJSON or CSV) or a hybris console log (up to ${config.max_upload_mb} MB) on the left, then ask questions about it here.</p>` +
         `<p class="hint" style="font-size:13px">For example: <em>What were the main problems today?</em>, <em>What happened with account 1234 and which APIs did they hit?</em> or <em>Why did the order fail for user 23dsfd?</em></p></div>`;
       input.disabled = send.disabled = reset.disabled = true;
       input.placeholder = "Choose a file first";
@@ -477,7 +477,7 @@
 
   fetch("/api/config").then((r) => r.json()).then((c) => {
     config = c;
-    $("drop-limits").textContent = `JSON, NDJSON or CSV from Dynatrace, up to ${c.max_upload_mb} MB`;
+    $("drop-limits").textContent = `Dynatrace JSON, NDJSON or CSV, or a hybris console log, up to ${c.max_upload_mb} MB`;
     $("files-note").textContent = `Your files are visible only to you unless you share them. Files unused for ${c.idle_hours} hours are removed.`;
     return start();
   }).catch(() => { $("meta").textContent = "Could not reach the server."; });

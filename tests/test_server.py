@@ -209,6 +209,18 @@ def test_csv_with_log_message_column_uploads() -> None:
     assert file["status"] == "ready", file
 
 
+def test_console_log_uploads() -> None:
+    data = (
+        b"INFO   | jvm 1    | main    | 2026/09/02 10:03:00.001 | "
+        b"[2026-09-02T10:03:00,000] ERROR [hybrisHTTP3] [DefaultCartService] boom\n"
+        b"INFO   | jvm 1    | main    | 2026/09/02 10:03:00.002 | \tat a.b.C.d(C.java:1)\n"
+    )
+    c = client(make_app())
+    sign_in(c)
+    file = upload(c, data, "console-20260902.log").json()
+    assert file["status"] == "ready", file
+
+
 def test_a_crash_while_loading_still_finishes_the_upload(monkeypatch: pytest.MonkeyPatch) -> None:
     def explode(*args: Any, **kwargs: Any) -> LogStore:
         raise RuntimeError("bug")

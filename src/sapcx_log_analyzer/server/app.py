@@ -57,7 +57,7 @@ CSRF_HEADER = "X-Requested-With"
 CSRF_VALUE = "sapcx-log-analyzer"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 QUEUE_TIMEOUT_SECONDS = 300
-_SUFFIXES = {".json", ".ndjson", ".jsonl", ".csv"}
+_SUFFIXES = {".json", ".ndjson", ".jsonl", ".csv", ".log", ".txt", ".out"}
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "

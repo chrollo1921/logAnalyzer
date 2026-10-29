@@ -7,8 +7,8 @@ with Claude, and recommends what to do next.
 Deterministic code does the heavy lifting first, so the LLM only sees a compact, redacted summary:
 
 1. **Ingest** a Dynatrace export: Logs viewer CSV, a Grail/DQL `fetch logs` JSON result, a plain
-   JSON array, or NDJSON. Stack traces that Dynatrace split into separate records are stitched back
-   together.
+   JSON array, or NDJSON; or a raw hybris console log (see below). Stack traces that Dynatrace split
+   into separate records are stitched back together.
 2. **Normalize** each line into a typed record. Both the CCv2 log4j2 JSON layout and the classic
    `LEVEL [thread] [logger] message` pattern are understood. The CCv2 aspect (`api`, `backoffice`,
    `backgroundprocessing`, ...) is derived from the pod name.
@@ -159,7 +159,7 @@ Dynatrace query to the incident window where you can.
 ## The web chat for a team
 
 `sapcx-log-analyzer serve` runs a web app in which people upload a Dynatrace export (drag and drop,
-JSON, NDJSON or CSV) and then chat about it. Several people can use one server at the same time:
+JSON, NDJSON or CSV) or a hybris console log and then chat about it. Several people can use one server at the same time:
 
 - Everyone has their own files and conversations. A file is visible only to the person who
   uploaded it until they tick **Share**; then everyone signed in can ask about it, each in their own
@@ -240,6 +240,22 @@ fetch logs, from: "2026-10-20T08:00:00Z", to: "2026-10-20T10:00:00Z"
 
 If your project logs the user, B2B unit or session in the MDC (log4j2 `contextMap`), every line of a
 request can be found by that id; if not, the trace id still links them.
+
+## Raw console logs
+
+A `console.log`, `catalina.out` or `kubectl logs` capture can be given as is (`.log`, `.txt`,
+`.out` or no extension). The reader understands:
+
+- the Tanuki service wrapper prefix of on-premise installs
+  (`INFO | jvm 1 | main | 2026/09/02 00:27:23.140 | ...`); the wrapper's own lines, such as
+  "Pinging the JVM took 37 seconds to respond", become records too;
+- the hybris Log4j2 pattern `[2026-09-02T00:27:23,134] INFO  [thread] [Logger] message`, the
+  startup `1905 [main] INFO  de.hybris.Foo  - message` pattern and Tomcat's two-line
+  `Sep 02, 2026 3:36:16 PM org.apache.Foo init` / `INFO: message` output;
+- ANSI colour codes, which are removed; stack traces and the further lines of a multi-line
+  message, which are joined onto the record above them.
+
+Console timestamps carry no time zone and are read as UTC.
 
 ## Configuration
 
@@ -370,7 +386,7 @@ src/sapcx_log_analyzer/
   config.py       Settings (pydantic-settings)
   models.py       LogRecord, Cluster, Finding, Report
   pipeline.py     Wires the stages together
-  ingest/         Dynatrace CSV and JSON readers, format detection
+  ingest/         Dynatrace CSV and JSON readers, console log reader, format detection
   parse/          log4j2 JSON layout, pattern lines, stack traces, normalization
   redact/         PII and secret masking
   classify/       Rule engine and the SAP Commerce rule catalogue
