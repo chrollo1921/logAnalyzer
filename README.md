@@ -212,7 +212,10 @@ Either of these works:
 
 - **Logs viewer:** filter on your CCv2 environment (for example by `k8s.namespace.name` or the cloud
   application), pick the time window of the incident, then export as CSV. Keep the `timestamp`,
-  `status`/`loglevel`, `content` and `k8s.pod.name` columns.
+  `status`/`loglevel`, `content` and `k8s.pod.name` columns. Renamed columns such as
+  `Log message`, `Log Level` or `@timestamp` are recognised too, as are comma, semicolon, tab and
+  pipe delimiters and UTF-8, UTF-16 (Excel "Unicode text") or Windows-1252 files. A CSV with no
+  message column is rejected with the columns it has.
 - **Notebook or DQL:** run a query such as the one below and download the result as JSON.
 
 ```
