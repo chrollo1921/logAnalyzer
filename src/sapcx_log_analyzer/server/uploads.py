@@ -29,7 +29,10 @@ from sapcx_log_analyzer.server.auth import SYSTEM, User
 log = logging.getLogger(__name__)
 
 MAX_CONVERSATIONS_PER_UPLOAD = 200
-NO_RECORDS = "no log records found; export JSON, NDJSON or CSV from Dynatrace"
+NO_RECORDS = (
+    "no log records found; export JSON, NDJSON or CSV from Dynatrace, "
+    "or upload a hybris console log"
+)
 
 
 class UploadStatus(StrEnum):

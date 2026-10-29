@@ -4,6 +4,7 @@ Typical lines::
 
     ERROR [hybrisHTTP31] [10.1.2.3] [DefaultCartService] Could not calculate cart
     2026-10-20 10:15:30,123 WARN  [update-backofficeIndex-cronJob::de.hybris...] [Indexer] ...
+    [2026-09-02T00:27:23,134] INFO  [TaskExecutor-master-273-ProcessTask [88070]] [Runner] ...
 """
 
 from __future__ import annotations
@@ -14,13 +15,14 @@ from datetime import UTC, datetime
 from sapcx_log_analyzer.parse.sapcx_json import ParsedLine
 
 _LINE = re.compile(
-    r"^(?:(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}"
-    r"(?:[.,]\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?)\s+)?"
+    r"^(?:\[?(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}"
+    r"(?:[.,]\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?)\]?\s+)?"
     r"(?:\|\s*)?(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|SEVERE)\s+"
-    r"(?P<brackets>(?:\[[^\]]*\]\s*)*)"
+    r"(?P<brackets>(?:\[(?:[^\[\]]|\[[^\[\]]*\])*\]\s*)*)"
     r"(?P<msg>.*)$"
 )
-_BRACKET = re.compile(r"\[([^\]]*)\]")
+# Thread names can hold one level of brackets: "[ProcessTask [8807037666230]]".
+_BRACKET = re.compile(r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]")
 _LOGGER = re.compile(r"^[A-Za-z_$][\w$]*(?:\.[\w$]+)*$")
 
 
@@ -47,7 +49,7 @@ def parse_pattern_line(content: str) -> ParsedLine | None:
     if match is None:
         return None
     brackets = [b.strip() for b in _BRACKET.findall(match.group("brackets") or "")]
-    thread = brackets[0] if brackets else None
+    thread = brackets[0] if brackets and brackets[0] else None
     logger = next(
         (b for b in reversed(brackets[1:]) if _LOGGER.match(b) and not b[0].isdigit()),
         None,
